@@ -1,0 +1,55 @@
+{
+  "implant": {
+    "id": "ebpf-sensor-poc-01",
+    "sensor_type": "ebpf-kernel-level",
+    "description": "Kernel-level telemetry implant for red team operations"
+  },
+  "collection": {
+    "process_events": {
+      "enabled": false,
+      "description": "Monitor process execution (exec, fork)",
+      "hooks": [
+        "tp/sched/sched_process_exec",
+        "tp/sched/sched_process_fork"
+      ]
+    },
+    "network_events": {
+      "enabled": true,
+      "description": "Monitor network connections (TCP inbound/outbound)",
+      "hooks": [
+        "kprobe/tcp_v4_connect",
+        "kprobe/tcp_v4_syn_recv_sock"
+      ]
+    },
+    "file_events": {
+      "enabled": false,
+      "description": "Monitor file access (open, read, write)",
+      "hooks": [
+        "tp/syscalls/sys_enter_openat",
+        "tp/syscalls/sys_enter_read",
+        "tp/syscalls/sys_enter_write"
+      ]
+    }
+  },
+  "output": {
+    "directory": "/tmp/ebpf-telemetry",
+    "format": "json",
+    "export_enabled": true
+  },
+  "amalia": {
+    "enabled": false,
+    "url": "http://localhost:8000/api/ingest",
+    "token": null,
+    "timeout_seconds": 10
+  },
+  "performance": {
+    "ringbuffer_size_kb": 256,
+    "poll_interval_ms": 100,
+    "max_event_loss_percent": 2
+  },
+  "debugging": {
+    "verbose": false,
+    "print_events": true,
+    "log_level": "INFO"
+  }
+}
