@@ -1,0 +1,54 @@
+# Build artifacts
+/build/
+/dist/
+*.o
+*.a
+*.so
+*.so.*
+
+# Binaries
+*.exe
+*.out
+*.elf
+*.elf.debug
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-workspace
+*.sublime-project
+
+# Compiler outputs
+*.d
+*.i
+*.s
+*.bc
+
+# LLVM/Clang
+*.ll
+*.bc
+
+# Dependencies
+/include/linux/
+/include/sys/
+/third_party/
+
+# Debug
+*.gdb
+*.backtrace
+gmon.out
+
+# OS specific
+.DS_Store
+Thumbs.db
