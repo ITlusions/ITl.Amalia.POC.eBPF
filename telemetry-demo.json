@@ -1,0 +1,74 @@
+{
+  "implant_id": "ebpf-sensor-poc-01",
+  "sensor_type": "ebpf-kernel-level",
+  "exported_at": "2026-08-09T23:03:00.863173",
+  "collection_window": {
+    "start": 1786309380.863174,
+    "end": 1786309380.863174,
+    "duration_sec": 60.0
+  },
+  "events": {
+    "network": [
+      {
+        "type": "network",
+        "timestamp": 1786309380.862812,
+        "timestamp_iso": "2026-08-09T23:03:00.862812",
+        "pid": 1234,
+        "uid": 1000,
+        "comm": "curl",
+        "protocol": "TCP",
+        "sport": 54821,
+        "dport": 443,
+        "saddr": "192.168.1.100",
+        "daddr": "93.184.216.34",
+        "direction": "outbound"
+      },
+      {
+        "type": "network",
+        "timestamp": 1786309380.863149,
+        "timestamp_iso": "2026-08-09T23:03:00.863149",
+        "pid": 5678,
+        "uid": 1000,
+        "comm": "ssh",
+        "protocol": "TCP",
+        "sport": 22,
+        "dport": 22,
+        "saddr": "192.168.1.100",
+        "daddr": "10.0.0.1",
+        "direction": "outbound"
+      },
+      {
+        "type": "network",
+        "timestamp": 1786309380.863152,
+        "timestamp_iso": "2026-08-09T23:03:00.863152",
+        "pid": 9012,
+        "uid": 1000,
+        "comm": "python3",
+        "protocol": "TCP",
+        "sport": 8080,
+        "dport": 443,
+        "saddr": "192.168.1.100",
+        "daddr": "1.2.3.4",
+        "direction": "outbound"
+      },
+      {
+        "type": "network",
+        "timestamp": 1786309380.863153,
+        "timestamp_iso": "2026-08-09T23:03:00.863153",
+        "pid": 3456,
+        "uid": 1000,
+        "comm": "nc",
+        "protocol": "TCP",
+        "sport": 5555,
+        "dport": 4444,
+        "saddr": "192.168.1.100",
+        "daddr": "10.20.30.40",
+        "direction": "inbound"
+      }
+    ]
+  },
+  "summary": {
+    "network_events": 4,
+    "total_events": 4
+  }
+}

