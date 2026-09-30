@@ -66,6 +66,17 @@ class ConfigManager:
                 "network_events": {"enabled": True},
                 "file_events": {"enabled": False}
             },
+            "network": {
+                "capture_ipv4": True,
+                "capture_ipv6": True,
+                "capture_tcp": True,
+                "capture_udp": True,
+                "capture_dns": True,
+                "capture_payload": True,
+                "max_payload_size": 96,
+                "track_connection_close": True,
+                "track_tcp_metrics": True
+            },
             "output": {
                 "directory": "/tmp/ebpf-telemetry",
                 "format": "json",
@@ -215,38 +226,115 @@ class EBPFImplantAgent:
             return None
 
     def parse_network_event(self, data: bytes) -> Dict[str, Any]:
-        """Parse network_event struct from ringbuf data"""
+        """Parse expanded network_event struct from ringbuf data"""
         try:
-            # struct network_event
-            if len(data) < 28:
+            # Updated struct network_event with IPv6 and additional fields
+            # timestamp(8) + pid(4) + uid(4) + comm(16) = 32
+            if len(data) < 32:
                 return None
 
             timestamp, pid, uid = struct.unpack("=QII", data[:12])
             comm = data[12:28].rstrip(b'\x00').decode('utf-8', errors='ignore')
 
-            if len(data) < 40:
+            # protocol(1) + family(1) + sport(2) + dport(2) + saddr(4) + daddr(4) = 14
+            # saddr6(16) + daddr6(16) + direction(1) + bytes_sent(4) + bytes_recv(4) = 41
+            # tcp_state(1) + retransmits(1) + payload_size(4) + payload(96) + is_dns(1) = 103
+            # Total after first 28: 14 + 41 + 103 = 158, so min total = 186
+
+            if len(data) < 186:
                 return None
 
-            protocol, sport, dport, saddr, daddr, direction = struct.unpack(
-                "=BHHIIB", data[28:40]
-            )
+            offset = 28
+            protocol, family = struct.unpack("=BB", data[offset:offset+2])
+            offset += 2
+            sport, dport = struct.unpack("=HH", data[offset:offset+4])
+            offset += 4
+            saddr, daddr = struct.unpack("=II", data[offset:offset+8])
+            offset += 8
+            saddr6 = data[offset:offset+16]
+            offset += 16
+            daddr6 = data[offset:offset+16]
+            offset += 16
+            direction, bytes_sent, bytes_recv = struct.unpack("=BII", data[offset:offset+9])
+            offset += 9
+            tcp_state, retransmits = struct.unpack("=BB", data[offset:offset+2])
+            offset += 2
+            payload_size = struct.unpack("=I", data[offset:offset+4])[0]
+            offset += 4
+            payload = data[offset:offset+96]
+            offset += 96
+            is_dns = struct.unpack("=B", data[offset:offset+1])[0]
 
-            return {
+            # Format addresses based on family
+            if family == 2:  # AF_INET
+                src_addr = self._ip_to_string(saddr)
+                dst_addr = self._ip_to_string(daddr)
+                addr_type = "IPv4"
+            elif family == 10:  # AF_INET6
+                src_addr = self._ipv6_to_string(saddr6)
+                dst_addr = self._ipv6_to_string(daddr6)
+                addr_type = "IPv6"
+            else:
+                src_addr = "unknown"
+                dst_addr = "unknown"
+                addr_type = "unknown"
+
+            # Map protocol values
+            protocol_name = {1: "TCP", 2: "UDP"}.get(protocol, f"unknown({protocol})")
+
+            # Map direction values
+            if direction == 1:
+                direction_str = "inbound"
+            elif direction == 2:
+                direction_str = "outbound"
+            elif direction == 3:
+                direction_str = "close"
+            else:
+                direction_str = f"unknown({direction})"
+
+            # TCP state names
+            tcp_states = {
+                1: "ESTABLISHED",
+                2: "SYN_SENT",
+                3: "SYN_RECV",
+                4: "FIN_WAIT1",
+                5: "FIN_WAIT2",
+                6: "TIME_WAIT",
+                7: "CLOSE",
+                8: "CLOSE_WAIT",
+                9: "LAST_ACK",
+                10: "LISTEN",
+                11: "CLOSING"
+            }
+
+            event = {
                 "type": "network",
                 "timestamp": timestamp / 1e9,
                 "timestamp_iso": datetime.fromtimestamp(timestamp / 1e9).isoformat(),
                 "pid": pid,
                 "uid": uid,
                 "comm": comm,
-                "protocol": "TCP" if protocol == 1 else "UDP",
+                "protocol": protocol_name,
+                "family": addr_type,
                 "sport": sport,
                 "dport": dport,
-                "saddr": self._ip_to_string(saddr),
-                "daddr": self._ip_to_string(daddr),
-                "direction": "inbound" if direction == 1 else "outbound"
+                "saddr": src_addr,
+                "daddr": dst_addr,
+                "direction": direction_str,
+                "tcp_state": tcp_states.get(tcp_state, f"unknown({tcp_state})") if protocol == 1 else None,
+                "bytes_sent": bytes_sent if protocol == 1 else None,
+                "bytes_received": bytes_recv if protocol == 1 else None,
+                "retransmits": retransmits if protocol == 1 else None,
+                "is_dns": bool(is_dns),
+                "payload_size": payload_size,
+                "payload_preview": payload[:min(payload_size, 96)].rstrip(b'\x00').decode('utf-8', errors='ignore') if payload_size > 0 else None
             }
+
+            return event
         except Exception as e:
             print(f"[!] Error parsing network event: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def parse_file_event(self, data: bytes) -> Dict[str, Any]:
@@ -287,6 +375,19 @@ class EBPFImplantAgent:
         """Convert 32-bit IP to dotted decimal notation"""
         return ".".join(str((ip >> (i*8)) & 0xFF) for i in range(4))
 
+    @staticmethod
+    def _ipv6_to_string(ip6: bytes) -> str:
+        """Convert 16-byte IPv6 address to colon-separated notation"""
+        if len(ip6) != 16:
+            return "invalid"
+        # Convert bytes to 8 16-bit groups
+        groups = []
+        for i in range(0, 16, 2):
+            val = (ip6[i] << 8) | ip6[i + 1]
+            groups.append(f"{val:x}")
+        # Join with colons (simplified - doesn't compress ::)
+        return ":".join(groups)
+
     def start_collection(self, duration: int = 60) -> bool:
         """Poll ringbufs and collect events based on configuration"""
         if not self.bpf:
@@ -317,7 +418,12 @@ class EBPFImplantAgent:
             if event:
                 self.events_collected["network"].append(event)
                 if self.config.get("debugging", {}).get("print_events", True):
-                    print(f"[+] NETWORK: {event['comm']}({event['pid']}) → {event['daddr']}:{event['dport']}")
+                    dns_marker = " [DNS]" if event.get('is_dns') else ""
+                    proto = event.get('protocol', 'unknown')
+                    family = event.get('family', 'IPv4')
+                    direction = event.get('direction', 'unknown')
+                    state = f" ({event['tcp_state']})" if event.get('tcp_state') else ""
+                    print(f"[+] NET: {event['comm']}({event['pid']}) {proto}/{family} {direction} {event['saddr']}:{event['sport']}→{event['daddr']}:{event['dport']}{state}{dns_marker}")
 
         def file_callback(cpu, data, size):
             if not self.enabled_types.get("file_events", False):
