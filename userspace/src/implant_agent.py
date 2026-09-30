@@ -17,9 +17,12 @@ import time
 import subprocess
 import argparse
 import os
+import asyncio
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from queue import Queue
 
 try:
     from bcc import BPF
@@ -32,6 +35,12 @@ try:
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
+
+try:
+    import httpx
+    HAS_HTTPX = True
+except ImportError:
+    HAS_HTTPX = False
 
 
 class ConfigManager:
@@ -87,6 +96,14 @@ class ConfigManager:
                 "url": "http://localhost:8000/api/ingest",
                 "timeout_seconds": 10
             },
+            "braincell": {
+                "enabled": False,
+                "url": "http://localhost:8000",
+                "api_token": "",
+                "batch_size": 50,
+                "flush_interval_sec": 10,
+                "max_retries": 3
+            },
             "debugging": {
                 "verbose": False,
                 "print_events": True
@@ -99,6 +116,229 @@ class ConfigManager:
         with open(config_file, 'w') as f:
             json.dump(config, f, indent=2)
         print(f"[+] Configuration saved to {config_file}")
+
+
+class BrainCellClient:
+    """BrainCell persistent memory ingestion client"""
+
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize BrainCell client with configuration"""
+        if not HAS_HTTPX:
+            print("[!] httpx not available. Install: pip install httpx")
+            self.enabled = False
+            return
+
+        self.enabled = True
+        self.url = config.get("url", "http://localhost:8000")
+        self.token = config.get("api_token", "")
+        self.batch_size = config.get("batch_size", 50)
+        self.flush_interval = config.get("flush_interval_sec", 10)
+        self.max_retries = config.get("max_retries", 3)
+
+        self.event_queue = Queue()
+        self.session = None
+        self.worker_thread = None
+        self.running = False
+
+        print(f"[*] BrainCell client configured: {self.url}")
+
+    def start(self):
+        """Start background batch worker thread"""
+        if not self.enabled:
+            return
+
+        self.running = True
+        self.worker_thread = threading.Thread(
+            target=self._batch_worker,
+            daemon=True
+        )
+        self.worker_thread.start()
+        print("[+] BrainCell batch worker started")
+
+    def stop(self):
+        """Stop background worker and flush remaining events"""
+        if not self.enabled:
+            return
+
+        self.running = False
+        if self.worker_thread:
+            self.worker_thread.join(timeout=5)
+        print("[+] BrainCell worker stopped")
+
+    def queue_event(self, event: Dict[str, Any]):
+        """Queue network event for batch ingestion"""
+        if not self.enabled:
+            return
+
+        # Strip payload data, keep only metadata
+        metadata_event = self._extract_metadata(event)
+        self.event_queue.put(metadata_event)
+
+    def _extract_metadata(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract essential metadata from network event (no payloads)"""
+        return {
+            "timestamp": event.get("timestamp"),
+            "timestamp_iso": event.get("timestamp_iso"),
+            "pid": event.get("pid"),
+            "uid": event.get("uid"),
+            "comm": event.get("comm"),
+            "protocol": event.get("protocol"),
+            "family": event.get("family"),
+            "sport": event.get("sport"),
+            "dport": event.get("dport"),
+            "saddr": event.get("saddr"),
+            "daddr": event.get("daddr"),
+            "direction": event.get("direction"),
+            "tcp_state": event.get("tcp_state"),
+            "bytes_sent": event.get("bytes_sent"),
+            "bytes_received": event.get("bytes_received"),
+            "retransmits": event.get("retransmits"),
+            "is_dns": event.get("is_dns", False)
+        }
+
+    def _event_to_note(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert network event metadata to BrainCell note"""
+        title = (f"{event['protocol']} {event['direction'].upper()}: "
+                f"{event['comm']}({event['pid']}) → "
+                f"{event['daddr']}:{event['dport']}")
+
+        # Format content as markdown
+        content = self._format_event_content(event)
+
+        # Extract threat-hunting tags
+        tags = self._extract_tags(event)
+
+        return {
+            "title": title,
+            "content": content,
+            "tags": tags,
+            "source": "ebpf-implant",
+            "meta_data": event
+        }
+
+    def _format_event_content(self, event: Dict[str, Any]) -> str:
+        """Format event as readable markdown"""
+        lines = [
+            f"**Process**: {event['comm']} (PID: {event['pid']}, UID: {event['uid']})",
+            f"**Direction**: {event['direction'].upper()}",
+            f"**Protocol**: {event['protocol']}/{event['family']}",
+            f"**Source**: {event['saddr']}:{event['sport']}",
+            f"**Destination**: {event['daddr']}:{event['dport']}",
+            f"**Timestamp**: {event.get('timestamp_iso', 'N/A')}"
+        ]
+
+        if event.get('tcp_state'):
+            lines.append(f"**TCP State**: {event['tcp_state']}")
+
+        if event.get('bytes_sent') is not None:
+            lines.append(f"**Bytes Sent**: {event['bytes_sent']}")
+        if event.get('bytes_received') is not None:
+            lines.append(f"**Bytes Received**: {event['bytes_received']}")
+
+        if event.get('retransmits'):
+            lines.append(f"**Retransmits**: {event['retransmits']}")
+
+        if event.get('is_dns'):
+            lines.append(f"**Type**: 🔍 DNS Query")
+
+        return "\n".join(lines)
+
+    def _extract_tags(self, event: Dict[str, Any]) -> List[str]:
+        """Extract searchable tags for threat hunting"""
+        tags = [
+            "network",
+            event['protocol'].lower(),
+            event['direction'],
+            event['family'],
+            f"port-{event['dport']}"
+        ]
+
+        if event.get('is_dns'):
+            tags.append("dns")
+
+        # Threat hunting tags
+        if event['dport'] in [22, 3389, 5900, 21]:
+            tags.append("remote-access")
+        if event['dport'] in [445, 139, 135]:
+            tags.append("smb")
+        if event['dport'] in [4444, 5555, 6666, 7777, 8888, 9999]:
+            tags.append("suspicious-port")
+        if event['dport'] == 53 or event.get('is_dns'):
+            tags.append("dns-query")
+        if event['direction'] == 'outbound' and event['dport'] not in [80, 443, 53]:
+            tags.append("unusual-egress")
+
+        return tags
+
+    def _batch_worker(self):
+        """Background worker: batch and send events to BrainCell"""
+        batch = []
+        last_flush = time.time()
+        session = requests.Session()
+        session.headers.update({
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
+        })
+
+        print("[*] BrainCell batch worker initialized")
+
+        while self.running:
+            try:
+                # Try to get event with timeout
+                event = self.event_queue.get(timeout=self.flush_interval)
+                batch.append(event)
+
+                # Flush if batch is full
+                if len(batch) >= self.batch_size:
+                    self._flush_batch(session, batch)
+                    batch = []
+                    last_flush = time.time()
+
+            except Exception:
+                # Timeout or other error - check if we should flush by time
+                elapsed = time.time() - last_flush
+                if elapsed >= self.flush_interval and batch:
+                    self._flush_batch(session, batch)
+                    batch = []
+                    last_flush = time.time()
+
+        # Final flush on shutdown
+        if batch:
+            self._flush_batch(session, batch)
+
+    def _flush_batch(self, session: requests.Session, events: List[Dict]):
+        """Send batch of events to BrainCell"""
+        if not events:
+            return
+
+        # Convert events to BrainCell notes
+        notes = [self._event_to_note(e) for e in events]
+
+        payload = {"items": notes}
+
+        retry_count = 0
+        while retry_count < self.max_retries:
+            try:
+                resp = session.post(
+                    f"{self.url}/api/notes",
+                    json=payload,
+                    timeout=30
+                )
+
+                if resp.status_code == 200 or resp.status_code == 201:
+                    print(f"[+] Ingested {len(notes)} network events to BrainCell")
+                    return True
+                else:
+                    print(f"[!] BrainCell returned {resp.status_code}: {resp.text[:100]}")
+                    retry_count += 1
+                    time.sleep(2 ** retry_count)  # Exponential backoff
+
+            except Exception as e:
+                print(f"[!] BrainCell ingestion error (attempt {retry_count + 1}): {e}")
+                retry_count += 1
+                time.sleep(2 ** retry_count)
+
+        print(f"[!] Failed to ingest {len(notes)} events after {self.max_retries} retries")
 
 
 class EBPFImplantAgent:
@@ -131,6 +371,11 @@ class EBPFImplantAgent:
             "network": [],
             "file": []
         }
+
+        # Initialize BrainCell client if enabled
+        self.braincell = None
+        if self.config.get("braincell", {}).get("enabled"):
+            self.braincell = BrainCellClient(self.config.get("braincell", {}))
 
         # Print configuration summary
         self._print_config_summary()
@@ -399,8 +644,16 @@ class EBPFImplantAgent:
             print("[!] No event types enabled in configuration")
             return False
 
+        # Start BrainCell ingestion if enabled
+        if self.braincell:
+            self.braincell.start()
+
         print(f"[*] Collecting events for {duration} seconds...")
-        print(f"[*] Enabled collectors: {', '.join(k for k, v in self.enabled_types.items() if v)}\n")
+        print(f"[*] Enabled collectors: {', '.join(k for k, v in self.enabled_types.items() if v)}")
+        if self.braincell and self.braincell.enabled:
+            print(f"[*] BrainCell ingestion: {self.braincell.url}\n")
+        else:
+            print()
 
         def process_callback(cpu, data, size):
             if not self.enabled_types.get("process_events", False):
@@ -417,6 +670,11 @@ class EBPFImplantAgent:
             event = self.parse_network_event(data)
             if event:
                 self.events_collected["network"].append(event)
+
+                # Queue to BrainCell if enabled
+                if self.braincell:
+                    self.braincell.queue_event(event)
+
                 if self.config.get("debugging", {}).get("print_events", True):
                     dns_marker = " [DNS]" if event.get('is_dns') else ""
                     proto = event.get('protocol', 'unknown')
@@ -455,9 +713,18 @@ class EBPFImplantAgent:
                     break
 
             print(f"\n[+] Collection complete")
+
+            # Stop BrainCell ingestion and flush remaining events
+            if self.braincell:
+                self.braincell.stop()
+                time.sleep(1)  # Give worker thread time to flush
+
             return True
         except Exception as e:
             print(f"[!] Collection error: {e}")
+            # Ensure BrainCell worker is stopped
+            if self.braincell:
+                self.braincell.stop()
             return False
 
     def export_telemetry(self, format: str = "json", filename: Optional[str] = None) -> str:
@@ -612,6 +879,8 @@ Examples:
                         help="Export telemetry to JSON file")
     parser.add_argument("--amalia", action="store_true",
                         help="Export telemetry to Amalia")
+    parser.add_argument("--braincell", action="store_true",
+                        help="Ingest network telemetry to BrainCell")
 
     args = parser.parse_args()
 
@@ -646,13 +915,28 @@ Examples:
         ConfigManager.save_config(config, args.config)
         sys.exit(0)
 
+    # Load config and enable BrainCell if requested
+    config = ConfigManager.load_config(args.config)
+    if args.braincell:
+        if not config.get("braincell", {}).get("api_token"):
+            print("[!] BrainCell API token not configured")
+            print("[*] Set it with: --config-set braincell.api_token YOUR_TOKEN")
+            sys.exit(1)
+        config["braincell"]["enabled"] = True
+
     # Check if running as root (required for loading eBPF)
     if (args.load or args.compile) and os.geteuid() != 0:
         print("[!] This tool requires root privileges for --load or --compile")
         sys.exit(1)
 
-    # Create agent with config
+    # Create agent with config (already loaded above for BrainCell check)
     agent = EBPFImplantAgent(args.bpf, args.config)
+    # Apply BrainCell override if configured
+    if args.braincell and "braincell" in config:
+        agent.config["braincell"] = config["braincell"]
+        # Reinitialize BrainCell client with updated config
+        if config["braincell"].get("enabled"):
+            agent.braincell = BrainCellClient(config["braincell"])
 
     if args.compile:
         if not agent.compile_bpf():
@@ -673,7 +957,7 @@ Examples:
         if not agent.export_to_amalia():
             sys.exit(1)
 
-    if not any([args.compile, args.load, args.collect, args.export, args.amalia]):
+    if not any([args.compile, args.load, args.collect, args.export, args.amalia, args.braincell]):
         print("[*] No action specified. Use --help for options")
 
     print("[+] Done")
