@@ -177,14 +177,54 @@ clang -O2 -target bpf -c sensor.bpf.c -o sensor.o
 cat /sys/kernel/debug/tracing/available_events | grep -E sched
 ```
 
+## Analyze Network IPs
+
+Analyze each unique IP with threat scoring and behavioral profiling:
+
+```bash
+# Collect and analyze IPs
+sudo /opt/ebpf-implant/implant_agent.py --load --collect 60 --ip-analysis --export
+
+# Output:
+# [+] IP analysis enabled
+# [*] IP analysis exported to /tmp/ebpf-telemetry/ip-analysis-<timestamp>.json
+# [+] IP analysis report exported to /tmp/ebpf-telemetry/ip-analysis-report-<timestamp>.txt
+
+# View report
+cat /tmp/ebpf-telemetry/ip-analysis-report-*.txt
+
+# Sample output:
+# ================================================================================
+# IP ANALYSIS REPORT
+# ================================================================================
+# Unique IPs: 12
+#   - External (Public): 8
+#   - Internal (Private): 4
+#
+# Top 5 Most Connected IPs:
+#   1. 93.184.216.34 - 23 connections
+#   2. 8.8.8.8 - 15 connections
+#   3. 192.168.1.1 - 12 connections
+#
+# Suspicious IPs (threat_score >= 30):
+#   - 93.184.216.34: threat_score=45.0
+#     Suspicious ports: [4444, 8888]
+```
+
+For detailed IP analysis usage, see: `docs/IP_ANALYSIS.md`
+
 ## Next Steps
 
 1. **Review telemetry**: Analyze collected events in `/tmp/ebpf-telemetry/`
-2. **Send to Amalia**: Integrate with red team analysis platform
-3. **Customize hooks**: Modify `kernel/programs/sensor.bpf.c` for specific events
-4. **Enable persistence**: Use systemd service for continuous monitoring
+2. **Analyze IPs**: Use `--ip-analysis` for threat scoring and profiling
+3. **Stream to BrainCell**: Use `--braincell` to ingest into persistent memory
+4. **Send to Amalia**: Integrate with red team analysis platform
+5. **Customize hooks**: Modify `kernel/programs/sensor.bpf.c` for specific events
+6. **Enable persistence**: Use systemd service for continuous monitoring
 
 ## Support
 
 For detailed usage patterns, see: `docs/USAGE.md`
+For IP analysis, see: `docs/IP_ANALYSIS.md`
+For BrainCell integration, see: `docs/BRAINCELL_INTEGRATION.md`
 For architecture details, see: `docs/ARCHITECTURE.md`
