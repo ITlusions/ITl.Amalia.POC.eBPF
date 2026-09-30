@@ -42,6 +42,12 @@ try:
 except ImportError:
     HAS_HTTPX = False
 
+try:
+    from ip_analysis import IPAnalyzer, IPThreatIntelligence
+    HAS_IP_ANALYSIS = True
+except ImportError:
+    HAS_IP_ANALYSIS = False
+
 
 class ConfigManager:
     """Manages configuration loading and defaults"""
@@ -103,6 +109,14 @@ class ConfigManager:
                 "batch_size": 50,
                 "flush_interval_sec": 10,
                 "max_retries": 3
+            },
+            "ip_analysis": {
+                "enabled": False,
+                "track_ips": True,
+                "threat_scoring": True,
+                "min_threat_score_report": 20.0,
+                "export_summary": True,
+                "export_top_ips": 10
             },
             "debugging": {
                 "verbose": False,
@@ -376,6 +390,14 @@ class EBPFImplantAgent:
         self.braincell = None
         if self.config.get("braincell", {}).get("enabled"):
             self.braincell = BrainCellClient(self.config.get("braincell", {}))
+
+        # Initialize IP analysis if enabled
+        self.ip_analyzer = None
+        if self.config.get("ip_analysis", {}).get("enabled") and HAS_IP_ANALYSIS:
+            self.ip_analyzer = IPAnalyzer()
+            print("[+] IP analysis enabled")
+        elif self.config.get("ip_analysis", {}).get("enabled"):
+            print("[!] IP analysis module not available. Install: pip install ip_analysis")
 
         # Print configuration summary
         self._print_config_summary()
@@ -671,6 +693,10 @@ class EBPFImplantAgent:
             if event:
                 self.events_collected["network"].append(event)
 
+                # Process through IP analyzer if enabled
+                if self.ip_analyzer:
+                    self.ip_analyzer.process_event(event)
+
                 # Queue to BrainCell if enabled
                 if self.braincell:
                     self.braincell.queue_event(event)
@@ -769,6 +795,46 @@ class EBPFImplantAgent:
 
         print(f"[+] Telemetry exported to {output_file}")
         print(f"[+] Summary: {telemetry['summary']}")
+
+        # Export IP analysis if enabled
+        if self.ip_analyzer:
+            self.export_ip_analysis()
+
+        return str(output_file)
+
+    def export_ip_analysis(self, filename: Optional[str] = None) -> str:
+        """Export IP analysis results as JSON and human-readable report"""
+        if not self.ip_analyzer:
+            print("[!] IP analysis not enabled")
+            return None
+
+        print("[*] Exporting IP analysis...")
+
+        # Export JSON analysis
+        analysis_json = self.ip_analyzer.export_json()
+
+        if not filename:
+            filename = f"ip-analysis-{int(time.time())}.json"
+
+        output_file = self.output_dir / filename
+
+        with open(output_file, 'w') as f:
+            json.dump(analysis_json, f, indent=2)
+
+        print(f"[+] IP analysis exported to {output_file}")
+
+        # Export human-readable report
+        report = self.ip_analyzer.get_summary_report()
+        report_file = self.output_dir / f"ip-analysis-report-{int(time.time())}.txt"
+
+        with open(report_file, 'w') as f:
+            f.write(report)
+
+        print(f"[+] IP analysis report exported to {report_file}")
+
+        # Print summary to console
+        print(report)
+
         return str(output_file)
 
     def export_to_amalia(self, amalia_url: Optional[str] = None,
@@ -881,6 +947,8 @@ Examples:
                         help="Export telemetry to Amalia")
     parser.add_argument("--braincell", action="store_true",
                         help="Ingest network telemetry to BrainCell")
+    parser.add_argument("--ip-analysis", action="store_true",
+                        help="Enable IP-level analysis and threat scoring")
 
     args = parser.parse_args()
 
@@ -924,6 +992,14 @@ Examples:
             sys.exit(1)
         config["braincell"]["enabled"] = True
 
+    # Enable IP analysis if requested
+    if args.ip_analysis:
+        if not HAS_IP_ANALYSIS:
+            print("[!] IP analysis module not available")
+            print("[*] Install with: pip install -e /path/to/ip_analysis/module")
+            sys.exit(1)
+        config["ip_analysis"]["enabled"] = True
+
     # Check if running as root (required for loading eBPF)
     if (args.load or args.compile) and os.geteuid() != 0:
         print("[!] This tool requires root privileges for --load or --compile")
@@ -937,6 +1013,13 @@ Examples:
         # Reinitialize BrainCell client with updated config
         if config["braincell"].get("enabled"):
             agent.braincell = BrainCellClient(config["braincell"])
+
+    # Apply IP analysis override if configured
+    if args.ip_analysis and "ip_analysis" in config:
+        agent.config["ip_analysis"] = config["ip_analysis"]
+        # Reinitialize IP analyzer with updated config
+        if config["ip_analysis"].get("enabled") and HAS_IP_ANALYSIS:
+            agent.ip_analyzer = IPAnalyzer()
 
     if args.compile:
         if not agent.compile_bpf():
