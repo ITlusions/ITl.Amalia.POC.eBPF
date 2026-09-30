@@ -3,13 +3,25 @@ YARA-based threat detection for network telemetry.
 
 Complements behavioral IP analysis with signature-based pattern matching.
 Used for detecting known malware C2 patterns, DNS exfiltration, etc.
+
+Rules can be loaded from:
+- Embedded defaults (built-in)
+- Local JSON files
+- Git repositories
+- BrainCell API
 """
 
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
+try:
+    from yara_rules_manager import YARARulesManager
+    HAS_RULES_MANAGER = True
+except ImportError:
+    HAS_RULES_MANAGER = False
 
-# YARA rules for network telemetry analysis
+
+# YARA rules for network telemetry analysis (embedded defaults)
 YARA_RULES = {
     # C2 Communication Patterns
     "c2_beacon": {
@@ -154,10 +166,35 @@ class YARARuleMatch:
 class YARADetector:
     """YARA-based threat detection for network profiles"""
 
-    def __init__(self):
-        """Initialize YARA detector with built-in rules"""
-        self.rules = YARA_RULES
+    def __init__(self, rules_config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize YARA detector.
+
+        Args:
+            rules_config: Configuration for loading rules:
+                - rules_source: "embedded", "file", "git", or "braincell"
+                - rules_file: Path to JSON rules file
+                - rules_git_url: Git raw URL to rules
+                - rules_braincell_url: BrainCell API URL
+                - rules_braincell_token: BrainCell token
+
+        Uses embedded defaults if config not provided or loading fails.
+        """
+        self.rules_config = rules_config or {}
+        self.rules = self._load_rules()
         self.matches: List[YARARuleMatch] = []
+
+    def _load_rules(self) -> Dict[str, Any]:
+        """Load rules from configured source or embedded defaults."""
+        # If rules manager available and config provided, try loading externally
+        if HAS_RULES_MANAGER and self.rules_config:
+            manager = YARARulesManager(self.rules_config)
+            rules = manager.load_rules()
+            if rules:
+                return rules
+
+        # Fallback to embedded rules
+        return YARA_RULES.copy()
 
     def scan_profile(self, ip: str, profile: Any) -> List[YARARuleMatch]:
         """

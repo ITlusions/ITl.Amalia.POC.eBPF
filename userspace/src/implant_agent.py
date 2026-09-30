@@ -129,7 +129,15 @@ class ConfigManager:
                 "scan_profiles": True,
                 "export_matches": True,
                 "min_confidence": 0.5,
-                "threat_categories": ["c2_beacon", "dns_tunneling", "data_exfiltration", "lateral_movement", "credential_access", "persistence"]
+                "threat_categories": ["c2_beacon", "dns_tunneling", "data_exfiltration", "lateral_movement", "credential_access", "persistence"],
+                "rules": {
+                    "source": "embedded",
+                    "file": None,
+                    "git_url": None,
+                    "braincell_url": None,
+                    "braincell_token": None,
+                    "cache_rules": True
+                }
             },
             "debugging": {
                 "verbose": False,
@@ -415,7 +423,10 @@ class EBPFImplantAgent:
         # Initialize YARA detection if enabled
         self.yara_detector = None
         if self.config.get("yara_analysis", {}).get("enabled") and HAS_YARA_DETECTION:
-            self.yara_detector = YARADetector()
+            # Pass rules configuration to detector
+            yara_config = self.config.get("yara_analysis", {})
+            rules_config = yara_config.get("rules", {}) if isinstance(yara_config.get("rules"), dict) else {}
+            self.yara_detector = YARADetector(rules_config)
             print("[+] YARA signature detection enabled")
         elif self.config.get("yara_analysis", {}).get("enabled"):
             print("[!] YARA detection module not available. Install: pip install yara-detection")
@@ -1165,7 +1176,9 @@ Examples:
         agent.config["yara_analysis"] = config["yara_analysis"]
         # Reinitialize YARA detector with updated config
         if config["yara_analysis"].get("enabled") and HAS_YARA_DETECTION:
-            agent.yara_detector = YARADetector()
+            yara_config = config["yara_analysis"]
+            rules_config = yara_config.get("rules", {}) if isinstance(yara_config.get("rules"), dict) else {}
+            agent.yara_detector = YARADetector(rules_config)
 
     if args.compile:
         if not agent.compile_bpf():

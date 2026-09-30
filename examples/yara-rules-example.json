@@ -1,0 +1,54 @@
+{
+  "c2_beacon": {
+    "description": "Known C2 beacon patterns",
+    "patterns": [
+      {"port": 4444, "severity": "high", "description": "Known C2 port"},
+      {"port": 5555, "severity": "high", "description": "Known C2 port"},
+      {"port": 6666, "severity": "high", "description": "Known C2 port"},
+      {"port": 7777, "severity": "high", "description": "Known C2 port"},
+      {"port": 8888, "severity": "high", "description": "Known C2 port"},
+      {"port": 9999, "severity": "high", "description": "Known C2 port"},
+      {"port": 10000, "severity": "high", "description": "Known C2 port"}
+    ]
+  },
+  "dns_tunneling": {
+    "description": "DNS-based data exfiltration patterns",
+    "patterns": [
+      {"name": "high_volume_dns", "condition": "dns_queries > 100 and bytes_sent > 10000", "severity": "high"},
+      {"name": "suspicious_dns_encoding", "condition": "domain contains unusual characters", "severity": "medium"}
+    ]
+  },
+  "data_exfiltration": {
+    "description": "Large outbound data transfers",
+    "patterns": [
+      {"name": "large_transfer", "condition": "bytes_sent > 1000000 and is_public_ip", "severity": "high"},
+      {"name": "ssh_transfer", "condition": "protocol == TCP and port == 22 and bytes_sent > 100000", "severity": "medium"}
+    ]
+  },
+  "lateral_movement": {
+    "description": "Internal network scanning and reconnaissance",
+    "patterns": [
+      {"name": "port_scan", "condition": "unique_ports > 20 and connections > 50", "severity": "medium"},
+      {"name": "rdp_sweep", "condition": "port == 3389 and connections > 5", "severity": "medium"}
+    ]
+  },
+  "credential_access": {
+    "description": "Credential theft and authentication attacks",
+    "patterns": [
+      {"name": "smb_access", "condition": "port in [445, 139, 135]", "severity": "medium"},
+      {"name": "ldap_query", "condition": "port == 389 and bytes_sent > 1000", "severity": "medium"}
+    ]
+  },
+  "persistence": {
+    "description": "Persistence and backdoor indicators",
+    "patterns": [
+      {"name": "dns_hijacking", "condition": "suspicious dns resolver change", "severity": "high"}
+    ]
+  },
+  "custom_threat": {
+    "description": "Custom threats for your organization",
+    "patterns": [
+      {"port": 9001, "severity": "high", "description": "Your organization's blocked port"}
+    ]
+  }
+}
