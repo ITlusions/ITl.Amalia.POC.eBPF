@@ -48,6 +48,12 @@ try:
 except ImportError:
     HAS_IP_ANALYSIS = False
 
+try:
+    from yara_detection import YARADetector
+    HAS_YARA_DETECTION = True
+except ImportError:
+    HAS_YARA_DETECTION = False
+
 
 class ConfigManager:
     """Manages configuration loading and defaults"""
@@ -117,6 +123,13 @@ class ConfigManager:
                 "min_threat_score_report": 20.0,
                 "export_summary": True,
                 "export_top_ips": 10
+            },
+            "yara_analysis": {
+                "enabled": False,
+                "scan_profiles": True,
+                "export_matches": True,
+                "min_confidence": 0.5,
+                "threat_categories": ["c2_beacon", "dns_tunneling", "data_exfiltration", "lateral_movement", "credential_access", "persistence"]
             },
             "debugging": {
                 "verbose": False,
@@ -398,6 +411,14 @@ class EBPFImplantAgent:
             print("[+] IP analysis enabled")
         elif self.config.get("ip_analysis", {}).get("enabled"):
             print("[!] IP analysis module not available. Install: pip install ip_analysis")
+
+        # Initialize YARA detection if enabled
+        self.yara_detector = None
+        if self.config.get("yara_analysis", {}).get("enabled") and HAS_YARA_DETECTION:
+            self.yara_detector = YARADetector()
+            print("[+] YARA signature detection enabled")
+        elif self.config.get("yara_analysis", {}).get("enabled"):
+            print("[!] YARA detection module not available. Install: pip install yara-detection")
 
         # Print configuration summary
         self._print_config_summary()
@@ -800,6 +821,10 @@ class EBPFImplantAgent:
         if self.ip_analyzer:
             self.export_ip_analysis()
 
+        # Export YARA analysis if enabled
+        if self.yara_detector and self.ip_analyzer:
+            self.export_yara_analysis()
+
         return str(output_file)
 
     def export_ip_analysis(self, filename: Optional[str] = None) -> str:
@@ -836,6 +861,103 @@ class EBPFImplantAgent:
         print(report)
 
         return str(output_file)
+
+    def export_yara_analysis(self, filename: Optional[str] = None) -> str:
+        """Export YARA detection results as JSON and human-readable report"""
+        if not self.yara_detector or not self.ip_analyzer:
+            print("[!] YARA or IP analysis not enabled")
+            return None
+
+        print("[*] Scanning IP profiles with YARA rules...")
+
+        # Scan all IP profiles with YARA rules
+        for ip, profile in self.ip_analyzer.ip_profiles.items():
+            matches = self.yara_detector.scan_profile(ip, profile)
+            if matches:
+                print(f"[+] Found {len(matches)} YARA matches for {ip}")
+
+        # Export YARA matches as JSON
+        if not filename:
+            filename = f"yara-matches-{int(time.time())}.json"
+
+        output_file = self.output_dir / filename
+
+        yara_export = {
+            "timestamp": datetime.now().isoformat(),
+            "total_matches": len(self.yara_detector.matches),
+            "matches_by_severity": self.yara_detector.get_summary(),
+            "matches": self.yara_detector.export_matches()
+        }
+
+        with open(output_file, 'w') as f:
+            json.dump(yara_export, f, indent=2)
+
+        print(f"[+] YARA matches exported to {output_file}")
+
+        # Generate human-readable report
+        report_file = self.output_dir / f"yara-report-{int(time.time())}.txt"
+        report_lines = self._generate_yara_report()
+
+        with open(report_file, 'w') as f:
+            f.write("\n".join(report_lines))
+
+        print(f"[+] YARA report exported to {report_file}")
+
+        # Print summary
+        if report_lines:
+            print("\n" + "\n".join(report_lines[:50]))
+            if len(report_lines) > 50:
+                print(f"... ({len(report_lines) - 50} more lines)")
+
+        return str(output_file)
+
+    def _generate_yara_report(self) -> List[str]:
+        """Generate human-readable YARA analysis report"""
+        lines = [
+            "=" * 80,
+            "YARA SIGNATURE-BASED THREAT DETECTION REPORT",
+            "=" * 80,
+            "",
+            f"Generated: {datetime.now().isoformat()}",
+            ""
+        ]
+
+        summary = self.yara_detector.get_summary()
+        lines.extend([
+            "SUMMARY",
+            "-" * 80,
+            f"Total Matches: {summary['total_matches']}",
+            f"Critical: {summary['critical']}",
+            f"High: {summary['high']}",
+            f"Medium: {summary['medium']}",
+            f"Low: {summary['low']}",
+            f"Unique IPs Matched: {summary['unique_ips_matched']}",
+            ""
+        ])
+
+        # Group matches by severity
+        for severity in ["critical", "high", "medium", "low"]:
+            matches = self.yara_detector.get_matches_by_severity(severity)
+            if not matches:
+                continue
+
+            lines.extend([
+                f"{severity.upper()} SEVERITY MATCHES ({len(matches)})",
+                "-" * 80
+            ])
+
+            for match in matches:
+                lines.extend([
+                    f"IP: {match.ip}",
+                    f"  Rule: {match.rule_name} ({match.rule_category})",
+                    f"  Pattern: {match.pattern}",
+                    f"  Description: {match.description}",
+                    f"  Confidence: {match.confidence:.1%}",
+                    f"  Metadata: {match.metadata}",
+                    ""
+                ])
+
+        return lines
 
     def export_to_amalia(self, amalia_url: Optional[str] = None,
                          token: Optional[str] = None) -> bool:
@@ -949,6 +1071,8 @@ Examples:
                         help="Ingest network telemetry to BrainCell")
     parser.add_argument("--ip-analysis", action="store_true",
                         help="Enable IP-level analysis and threat scoring")
+    parser.add_argument("--yara-rules", action="store_true",
+                        help="Enable YARA signature-based threat detection")
 
     args = parser.parse_args()
 
@@ -1000,6 +1124,21 @@ Examples:
             sys.exit(1)
         config["ip_analysis"]["enabled"] = True
 
+    # Enable YARA detection if requested
+    if args.yara_rules:
+        if not HAS_YARA_DETECTION:
+            print("[!] YARA detection module not available")
+            print("[*] Install with: pip install -e /path/to/yara_detection/module")
+            sys.exit(1)
+        config["yara_analysis"]["enabled"] = True
+        # YARA detection requires IP analysis
+        if not args.ip_analysis and not config.get("ip_analysis", {}).get("enabled"):
+            print("[*] Enabling IP analysis (required for YARA detection)")
+            if not HAS_IP_ANALYSIS:
+                print("[!] IP analysis module not available")
+                sys.exit(1)
+            config["ip_analysis"]["enabled"] = True
+
     # Check if running as root (required for loading eBPF)
     if (args.load or args.compile) and os.geteuid() != 0:
         print("[!] This tool requires root privileges for --load or --compile")
@@ -1021,6 +1160,13 @@ Examples:
         if config["ip_analysis"].get("enabled") and HAS_IP_ANALYSIS:
             agent.ip_analyzer = IPAnalyzer()
 
+    # Apply YARA detection override if configured
+    if args.yara_rules and "yara_analysis" in config:
+        agent.config["yara_analysis"] = config["yara_analysis"]
+        # Reinitialize YARA detector with updated config
+        if config["yara_analysis"].get("enabled") and HAS_YARA_DETECTION:
+            agent.yara_detector = YARADetector()
+
     if args.compile:
         if not agent.compile_bpf():
             sys.exit(1)
@@ -1040,7 +1186,7 @@ Examples:
         if not agent.export_to_amalia():
             sys.exit(1)
 
-    if not any([args.compile, args.load, args.collect, args.export, args.amalia, args.braincell]):
+    if not any([args.compile, args.load, args.collect, args.export, args.amalia, args.braincell, args.ip_analysis, args.yara_rules]):
         print("[*] No action specified. Use --help for options")
 
     print("[+] Done")
