@@ -1,33 +1,50 @@
-# ITL.Amalia.Poc.eBpf - eBPF Implant PoC
+# ITL.Amalia.Poc.eBpf - eBPF Kernel Telemetry Sensor
 
-**Kernel-level telemetry collection for red team operations & security research**
+**Kernel-level threat detection and telemetry collection for blue team testing**
 
-A production-ready eBPF implant that captures process execution, network connections, and file access at kernel level. Designed for integration with the Amalia red team analysis platform.
+A production-ready eBPF sensor that captures process execution, network connections, and file access at kernel level. Designed for blue team validation and integration with the Amalia threat analysis platform.
 
-## 🎯 Objective
+## Authorization and Operating Boundary
+
+- **Operator:** Niels Weistra, CISSP
+- **Authorization:** [RoE-ITlusions-Testlab-2026](../ITL.Amalia/docs/engagements/RoE-ITlusions-Testlab-2026.md)
+- **Validity:** 27 April 2026 through 31 December 2026, unless the engagement closes earlier
+- **Permitted environment:** ITlusions-owned or fully managed testlab systems listed in the RoE
+- **Excluded:** Customer production systems, unauthorized external cloud tenants, and third-party systems without a separate written RoE
+- **Evidence handling:** Use synthetic test data; record critical findings in BrainCell `incidents` and `vuln_reports`
+
+CISSP certification establishes professional context but does not replace written authorization. The referenced RoE is the controlling authority for every deployment, crash reproduction, and PoC execution.
+
+## Objective
 
 Monitor honeypot systems and capture attacker behavior in real-time using eBPF, providing actionable intelligence for red team operations and blue team defense validation.
 
-## ✨ Features
+## Features
 
-- **🔍 Kernel-level visibility**: Monitor processes, network, and file I/O without userspace overhead
-- **🚀 High performance**: Microsecond-level latency, minimal CPU impact (~1-3%)
-- **🔐 Stealth**: Invisible to standard process monitoring tools (ps, top, lsof)
-- **📊 JSON telemetry**: Structured event export for integration with analysis platforms
-- **🔄 Amalia integration**: Feed telemetry directly to red team analysis pipeline
-- **⚙️ Automated deployment**: One-command installation on Raspberry Pi and Linux servers
-- **📈 Scalable**: Ring buffer design handles high-frequency events
-- **📋 Complete documentation**: Quick start guides, troubleshooting, and advanced patterns
+- **Kernel-level visibility**: Capture processes, network connections, and file I/O at kernel level
+- **Real-time threat detection**: 4-layer detection engine (IP analysis, YARA, Sigma-Lite, correlation)
+- **High performance**: Microsecond-level latency, minimal CPU impact (~1-3%)
+- **JSON telemetry**: Structured event export for integration with analysis platforms
+- **Threat verdicts**: Unified threat assessment combining multiple detection methods
+- **Amalia & BrainCell integration**: Stream verdicts to red team analysis and persistent memory platforms
+- **Automated deployment**: One-command installation on Linux servers (5.8+)
+- **Scalable**: Ring buffer design handles high-frequency events
+- **Complete documentation**: Architecture guides, deployment instructions, and examples
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 ITL.Amalia.Poc.eBpf/
 ├── kernel/programs/           # eBPF kernel programs
 │   ├── sensor.bpf.c           # Main eBPF program (~300 lines)
 │   └── README.md
-├── userspace/src/             # User-space loader & collector
-│   ├── implant_agent.py       # Python agent (~550 lines)
+├── userspace/src/             # Python threat detection framework
+│   ├── core/                  # Configuration, logging, ABCs
+│   ├── collection/            # Event data models
+│   ├── detection/             # 4-layer threat detection
+│   ├── integrations/          # Amalia, BrainCell exports
+│   ├── application/           # Main orchestrator
+│   ├── examples/              # Usage demonstrations
 │   └── README.md
 ├── build/                     # Installation & testing
 │   ├── install.sh             # Automated OS detection & setup
@@ -37,13 +54,13 @@ ITL.Amalia.Poc.eBpf/
 │   ├── SETUP.md               # Development environment
 │   ├── USAGE.md               # Advanced usage patterns
 │   ├── QUICKSTART.md          # 5-minute deployment
-│   └── SECURITY.md            # Red/Blue team considerations
+│   └── SECURITY.md            # Detection considerations
 ├── CMakeLists.txt             # Build configuration
 ├── Makefile                   # Alternative build
 └── CLAUDE.md                  # Project guidelines
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation (3 minutes)
 
@@ -85,7 +102,7 @@ sudo /opt/ebpf-implant/implant_agent.py \
   --amalia-token "YOUR_TOKEN"
 ```
 
-## 📊 Event Collection
+## Event Collection
 
 ### Process Execution
 - PID, parent PID, UID/GID
@@ -103,7 +120,7 @@ sudo /opt/ebpf-implant/implant_agent.py \
 - Access flags and mode bits
 - Process context
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────┐
@@ -125,7 +142,7 @@ sudo /opt/ebpf-implant/implant_agent.py \
 └─────────────────────────────────────┘
 ```
 
-## 📈 Performance
+## Performance
 
 | Metric | Value | Impact |
 |--------|-------|--------|
@@ -136,7 +153,7 @@ sudo /opt/ebpf-implant/implant_agent.py \
 
 **Suitable for 24/7 continuous monitoring** without performance degradation.
 
-## 🔧 Requirements
+## Requirements
 
 ### System
 - Linux kernel 5.8+ (for ringbuf support)
@@ -150,60 +167,63 @@ sudo /opt/ebpf-implant/implant_agent.py \
 - Linux headers
 
 ### Supported Platforms
-- ✅ Raspberry Pi (ARMv7/ARMv8)
-- ✅ Ubuntu/Debian
-- ✅ RHEL/CentOS/Fedora
-- ✅ Any Linux with kernel 5.8+
+- Raspberry Pi (ARMv7/ARMv8)
+- Ubuntu/Debian
+- RHEL/CentOS/Fedora
+- Any Linux with kernel 5.8+
 
-## 📚 Documentation
+## Documentation
 
 - **[QUICKSTART.md](docs/QUICKSTART.md)** - 5-minute deployment guide
 - **[USAGE.md](docs/USAGE.md)** - Advanced usage patterns and integration
 - **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and concepts
 - **[SETUP.md](docs/SETUP.md)** - Development environment configuration
 
-## 🎓 Use Cases
+## Use Cases
 
-### Red Team Operations
-- Monitor honeypot for attacker reconnaissance and exfiltration
-- Collect real-time telemetry on attacker tools and techniques
-- Feed intelligence to payload optimization pipeline
+### Blue Team Detection Tuning
+- Validate threat detection signatures (YARA, Sigma-Lite)
+- Test response procedures against real kernel-level telemetry
+- Measure detection latency and accuracy
+- Tune threat correlation thresholds
 
-### Blue Team Validation
-- Test detection and response capabilities against eBPF-based implant
-- Validate logging and monitoring infrastructure
-- Incident response forensics
+### Lab Environment Monitoring
+- Continuous telemetry collection in isolated test networks
+- Real-time process, network, and file access visibility
+- Integration with SIEM and threat analysis platforms
+- Incident response testing and validation
 
 ### Security Research
-- Kernel-level hooking technique research
-- eBPF verifier vulnerability exploitation
-- Adversary emulation and persistence techniques
+- Kernel-level event collection research
+- eBPF performance and reliability testing
+- Threat emulation and detection validation
+- Blue team capability assessment
 
-## ⚠️ Security Considerations
+## Authorization & Legal Notice
 
-### Red Team Perspective
-**Advantages**:
-- Invisible to userspace process monitoring
-- Minimal performance footprint
-- Direct kernel visibility
-- Survives privilege drops
+⚠️ **AUTHORIZATION REQUIRED**
 
-**Detection Vectors**:
-- `bpftool prog list` inspection
-- Audit log anomalies
-- Syscall event explosion
+This tool generates realistic threat telemetry. Use only in:
+- ✅ Authorized lab environments
+- ✅ With proper Rules of Engagement (RoE)
+- ✅ With system owner consent
+- ✅ For defensive testing purposes
 
-### Blue Team Perspective
-**Detection**:
-- Monitor `bpf()` syscalls
-- Inspect loaded programs
-- Track audit events
-- Analyze syscall patterns
+Unauthorized use is illegal.
 
-**Response**:
-- Kill implant: `bpftool prog del id <ID>`
-- Collect ringbuf data: `bpftool map dump id <ID>`
-- Isolate network immediately
+## Blue Team Detection Considerations
+
+**What This Tool Does**:
+- Generates realistic process, network, and file access events
+- Tests detection coverage for kernel-level visibility
+- Validates threat analysis pipelines
+- Provides telemetry for incident response validation
+
+**What Monitoring Should Catch**:
+- eBPF program loading (via audit or syscall monitoring)
+- Ring buffer memory access patterns
+- Process execution events flowing through detection systems
+- Network connection events in detection pipeline
 
 ## 🤝 Contributing
 
@@ -213,7 +233,7 @@ Contributions welcome! Focus areas:
 - Detection improvements and signatures
 - Platform support (ARM, x86_64, other architectures)
 
-## 📝 License
+## License
 
 [To be determined]
 

@@ -498,7 +498,7 @@ for conn in network_events:
 ```markdown
 ## Red Team Operations - Week 1 Status
 
-**Implant Status**: ✓ Active (5/5 nodes)
+**Implant Status**: [PASS] Active (5/5 nodes)
 **Telemetry Volume**: 50K events/day
 **Detection Metrics**:
 - Undetected: 95% (target: 70-80%)
@@ -583,7 +583,7 @@ update_implant_config({
 
 ```bash
 # If cluster performs rolling node updates:
-# 1. DaemonSet automatically reschedules on new nodes ✓
+# 1. DaemonSet automatically reschedules on new nodes [OK]
 # 2. eBPF programs survive node reboot (in-kernel)
 # 3. Systemd service would restart (we're in container)
 
