@@ -8,9 +8,20 @@ from detection.ip_analysis import IPAnalyzer
 from detection.yara import YARADetector
 from detection.sigma_lite import SigmaLiteDetector
 from detection.correlation import ThreatCorrelator
-from anti_forensics import StealthyImplantBootstrap
-from c2 import C2ClientOrchestrator, C2Configuration
 from integrations import BrainCellClient, AmaliaExporter
+
+# Optional stealth package (itl-ebpf-stealth)
+STEALTH_AVAILABLE = False
+StealthyImplantBootstrap = None
+C2ClientOrchestrator = None
+C2Configuration = None
+
+try:
+    from itl_ebpf_stealth import StealthyImplantBootstrap
+    from itl_ebpf_stealth import C2ClientOrchestrator, C2Configuration
+    STEALTH_AVAILABLE = True
+except ImportError:
+    pass
 
 
 class ApplicationServices:
@@ -39,15 +50,27 @@ class ApplicationServices:
         correlator = ThreatCorrelator()
         return correlator
 
-    def create_stealth_layer(self) -> StealthyImplantBootstrap:
-        """Create stealth mechanism orchestrator"""
-        return StealthyImplantBootstrap()
+    def create_stealth_layer(self) -> Optional[object]:
+        """Create stealth mechanism orchestrator (OPTIONAL)"""
+        if not STEALTH_AVAILABLE or not StealthyImplantBootstrap:
+            self.logger.info("Stealth layer not available (itl-ebpf-stealth not installed)")
+            return None
 
-    def create_c2_client(self) -> Optional[C2ClientOrchestrator]:
-        """Create C2 client if enabled"""
+        try:
+            return StealthyImplantBootstrap()
+        except Exception as e:
+            self.logger.error(f"Stealth initialization failed: {e}")
+            return None
+
+    def create_c2_client(self) -> Optional[object]:
+        """Create C2 client if enabled (OPTIONAL)"""
         if not self.config.c2_enabled or not self.config.c2_server_url:
             return None
-        
+
+        if not STEALTH_AVAILABLE or not C2ClientOrchestrator:
+            self.logger.warning("C2 requested but itl-ebpf-stealth not installed")
+            return None
+
         try:
             c2_config = C2Configuration(server_url=self.config.c2_server_url)
             return C2ClientOrchestrator(c2_config)
