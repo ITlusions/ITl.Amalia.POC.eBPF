@@ -1,9 +1,10 @@
 """External system integrations: BrainCell, Amalia, etc."""
 
-from .braincell.client import BrainCellClient
-from .amalia.exporter import AmaliaExporter
+from .braincell import BrainCellClient, BrainCellWebSocketClient
+from .amalia import AmaliaExporter
 
 __all__ = [
     "BrainCellClient",
+    "BrainCellWebSocketClient",
     "AmaliaExporter",
 ]
