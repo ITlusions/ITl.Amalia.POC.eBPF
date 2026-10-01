@@ -14,11 +14,11 @@ MODULES_TO_TEST = [
     "core.config",
     "core.logger",
     "core.base_classes",
-    
+
     # Collection
     "collection",
     "collection.models",
-    
+
     # Detection
     "detection",
     "detection.ip_analysis",
@@ -29,37 +29,21 @@ MODULES_TO_TEST = [
     "detection.sigma_lite.models",
     "detection.correlation",
     "detection.correlation.threat_correlator",
-    
-    # Anti-forensics
-    "anti_forensics",
-    "anti_forensics.audit_suppressor",
-    "anti_forensics.process_hider",
-    "anti_forensics.memory_obfuscator",
-    "anti_forensics.artifact_cleaner",
-    "anti_forensics.kernel_hiding",
-    "anti_forensics.detection_evader",
-    "anti_forensics.orchestrator",
-    
-    # C2
-    "c2",
-    "c2.models",
-    "c2.https",
-    "c2.https.certificate",
-    "c2.https.secure_client",
-    "c2.dns",
-    "c2.dns.tunneling",
-    "c2.rate_limiter",
-    "c2.client",
-    
-    # Integrations
+    "detection.crash_detection",
+    "detection.crash_detection.detector",
+
+    # Integrations (CORE)
     "integrations",
     "integrations.braincell",
     "integrations.amalia",
-    
+
     # Application
     "application",
     "application.implant_agent",
     "application.services",
+
+    # Examples
+    "examples",
 ]
 
 
@@ -102,17 +86,18 @@ def test_imports():
 
 
 def test_key_classes():
-    """Test instantiation of key classes"""
+    """Test instantiation of key classes (CORE framework only)"""
     print("\n" + "=" * 60)
     print("KEY CLASS INSTANTIATION TEST")
     print("=" * 60)
-    
+
     tests = [
         ("ConfigManager", lambda: __import__("core").config.ConfigManager()),
         ("ImplantLogger", lambda: __import__("core").logger.ImplantLogger()),
         ("ThreatCorrelator", lambda: __import__("detection").correlation.ThreatCorrelator()),
-        ("AdaptiveRateLimiter", lambda: __import__("c2").rate_limiter.AdaptiveRateLimiter()),
-        ("StealthyImplantBootstrap", lambda: __import__("anti_forensics").orchestrator.StealthyImplantBootstrap()),
+        ("IPAnalyzer", lambda: __import__("detection").ip_analysis.IPAnalyzer()),
+        ("YARADetector", lambda: __import__("detection").yara.YARADetector()),
+        ("SigmaLiteDetector", lambda: __import__("detection").sigma_lite.SigmaLiteDetector()),
         ("ApplicationServices", lambda: __import__("application").services.ApplicationServices(__import__("core").config.ConfigManager())),
     ]
     
