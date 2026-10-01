@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ConfigurationSettings:
-    """Application configuration"""
+    """Sensor configuration"""
     implant_id: str = "ebpf-sensor-poc-01"
     collection_interval: int = 60
     max_events_per_batch: int = 100
@@ -20,9 +20,6 @@ class ConfigurationSettings:
     braincell_url: Optional[str] = None
     enable_amalia_export: bool = False
     amalia_url: Optional[str] = None
-    c2_enabled: bool = False
-    c2_server_url: Optional[str] = None
-    enable_stealth: bool = True
     log_level: str = "INFO"
 
 
