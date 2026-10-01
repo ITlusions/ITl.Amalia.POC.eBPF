@@ -49,7 +49,7 @@ sudo python3 implant_agent.py --load --collect 60 --braincell
 
 ---
 
-## ⚡ WebSocket (Recommended Next)
+## WebSocket (Recommended Next)
 
 **How it works:** Persistent connection for immediate event streaming
 
@@ -121,9 +121,9 @@ agent = BrainCellWebSocketAsyncAgent(
 
 ### Disadvantages
 
-⚠️ Connection state management  
-⚠️ No built-in persistence  
-⚠️ Requires async code  
+[WARN] Connection state management
+[WARN] No built-in persistence
+[WARN] Requires async code
 
 ### Performance Example
 
@@ -161,7 +161,7 @@ agent.client.print_stats()
 
 ---
 
-## 🚀 gRPC Streaming (High Performance)
+## gRPC Streaming (High Performance)
 
 **How it works:** Binary streaming over HTTP/2 with multiplexing
 
@@ -205,9 +205,9 @@ Memory overhead:   2MB
 
 ### Tradeoff
 
-⚠️ Requires BrainCell to support gRPC  
-⚠️ Certificate management for TLS  
-⚠️ Protobuf schema definitions needed  
+[WARN] Requires BrainCell to support gRPC
+[WARN] Certificate management for TLS
+[WARN] Protobuf schema definitions needed
 
 ---
 
@@ -280,16 +280,16 @@ producer.flush()
 ### Typical Architecture
 
 ```
-eBPF Implant → Kafka Topic → BrainCell Consumer
-                          ├→ Amalia Consumer
-                          └→ ML Pipeline Consumer
+eBPF Implant -> Kafka Topic -> BrainCell Consumer
+                          ├-> Amalia Consumer
+                          └-> ML Pipeline Consumer
 ```
 
 ### Tradeoff
 
-⚠️ Requires Kafka infrastructure  
-⚠️ Operational complexity  
-⚠️ Not ideal for single-node setups  
+[WARN] Requires Kafka infrastructure
+[WARN] Operational complexity
+[WARN] Not ideal for single-node setups
 
 ---
 
@@ -364,9 +364,9 @@ while True:
 
 ### Tradeoff
 
-⚠️ Single point of failure (needs Redis Sentinel for HA)  
-⚠️ Limited to single Redis node throughput (~50K evt/sec)  
-⚠️ ~50GB recommended max stream size  
+[WARN] Single point of failure (needs Redis Sentinel for HA)
+[WARN] Limited to single Redis node throughput (~50K evt/sec)
+[WARN] ~50GB recommended max stream size
 
 ---
 
@@ -442,9 +442,9 @@ subscriber.loop_forever()
 
 ### Tradeoff
 
-⚠️ No built-in persistence (unless broker configured)  
-⚠️ Less suitable for massive throughput  
-⚠️ Topic explosion with many implants  
+[WARN] No built-in persistence (unless broker configured)
+[WARN] Less suitable for massive throughput
+[WARN] Topic explosion with many implants
 
 ---
 
@@ -465,13 +465,13 @@ subscriber.loop_forever()
 
 ```
 Phase 1: HTTP Batching (Current)
-  ↓
+  [phase]
 Phase 2: WebSocket Real-Time (Add as opt-in)
-  ↓
+  [phase]
 Phase 3: Dual HTTP+WebSocket Support
-  ↓
+  [phase]
 Phase 4: gRPC for High-Volume
-  ↓
+  [phase]
 Phase 5: Kafka/Redis for Enterprise
 ```
 

@@ -26,7 +26,7 @@
 │  │ • Event processor (sampling + jitter)            │   │
 │  │ • Process hider (ptrace-based or sysfs hiding)   │   │
 │  └──────────────────────────────────────────────────┘   │
-│           ↓ (kernel-global hooks)                       │
+│           [hook] (kernel-global hooks)                       │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │ eBPF Programs (kernel memory)                    │   │
 │  ├──────────────────────────────────────────────────┤   │
@@ -35,7 +35,7 @@
 │  │ • file_events (tp/syscalls/sys_enter_openat)     │   │
 │  │ • [NEW] anti_forensics (hide ring buffers)       │   │
 │  └──────────────────────────────────────────────────┘   │
-│           ↓ (captures ALL node processes)               │
+│           [capture] (captures ALL node processes)               │
 │  Host filesystem, network stack, all containers        │
 │                                                         │
 └─────────────────────────────────────────────────────────┘

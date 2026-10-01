@@ -2,7 +2,7 @@
 
 Guide to compile, deploy, and test network collection in WSL 2.
 
-## ⚠️ IMPORTANT: Your Current Environment
+## [WARN] IMPORTANT: Your Current Environment
 
 You're currently running in **MSYS2** (Windows UNIX emulation), which:
 - ❌ **Cannot** run eBPF programs (no Linux kernel)
@@ -119,9 +119,9 @@ cd ~/ebpf-implant
 sudo bash build/test_setup.sh
 
 # Expected output:
-# ✓ PASS: Kernel version 5.8+
-# ✓ PASS: clang installed
-# ✓ PASS: eBPF programs can load
+# [PASS] Kernel version 5.8+
+# [PASS] clang installed
+# [PASS] eBPF programs can load
 ```
 
 ### Step 2: Install Python Dependencies
@@ -148,9 +148,9 @@ sudo python3 userspace/src/implant_agent.py \
 # [*] Configuration Summary:
 #     Implant ID: ebpf-sensor-poc-01
 #     Events to collect:
-#       - network_events: ✓ ENABLED
-#       - process_events: ✗ disabled
-#       - file_events: ✗ disabled
+#       - network_events: [OK] ENABLED
+#       - process_events: [DISABLED] disabled
+#       - file_events: [DISABLED] disabled
 #
 # [*] Loading eBPF program into kernel...
 # [+] eBPF program loaded successfully
@@ -233,7 +233,7 @@ import json, sys
 data = json.load(sys.stdin)
 for evt in data['events']['network']:
     if evt['dport'] in [443, 80]:
-        print(f"{evt['comm']}({evt['pid']}) → {evt['daddr']}:{evt['dport']}")
+        print(f"{evt['comm']}({evt['pid']}) -> {evt['daddr']}:{evt['dport']}"
 EOF
 ```
 
@@ -245,7 +245,7 @@ import json, sys
 data = json.load(sys.stdin)
 for evt in data['events']['network']:
     if evt['dport'] == 22 or 'ssh' in evt['comm']:
-        print(f"SSH: {evt['comm']} → {evt['daddr']}:{evt['dport']} ({evt['direction']})")
+        print(f"SSH: {evt['comm']} -> {evt['daddr']}:{evt['dport']} ({evt['direction']})"
 EOF
 ```
 

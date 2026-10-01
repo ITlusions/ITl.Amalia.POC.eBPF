@@ -71,7 +71,7 @@ import json, sys
 data = json.load(sys.stdin)
 for evt in data['events']['network']:
     if evt['dport'] == 22 or 'ssh' in evt['comm']:
-        print(f"{evt['timestamp_iso']} {evt['comm']}:{evt['pid']} → {evt['daddr']}:{evt['dport']}")
+        print(f"{evt['timestamp_iso']} {evt['comm']}:{evt['pid']} -> {evt['daddr']}:{evt['dport']}"
 EOF
 ```
 
@@ -98,7 +98,7 @@ import json, sys
 data = json.load(sys.stdin)
 for evt in data['events']['process']:
     if evt['uid'] == 0:
-        print(f"ROOT: {evt['comm']} → {evt['filename']}")
+        print(f"ROOT: {evt['comm']} -> {evt['filename']}"
 EOF
 ```
 

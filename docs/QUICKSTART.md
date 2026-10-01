@@ -39,10 +39,10 @@ sudo bash build/install.sh
 sudo bash build/test_setup.sh
 
 # Output should show:
-# ✓ PASS: Kernel version 5.8+
-# ✓ PASS: clang, llvm, python3 installed
-# ✓ PASS: bpftool available
-# ✓ PASS: eBPF load capability works
+# [PASS] Kernel version 5.8+
+# [PASS] clang, llvm, python3 installed
+# [PASS] bpftool available
+# [PASS] eBPF load capability works
 ```
 
 ## Deployment (1 minute)
@@ -57,8 +57,8 @@ sudo /opt/ebpf-implant/implant_agent.py --load --collect 60 --export
 # [*] Loading eBPF program into kernel...
 # [+] eBPF program loaded successfully
 # [*] Collecting events for 60 seconds...
-# [+] PROCESS: curl(1234) → /usr/bin/curl
-# [+] NETWORK: curl → 1.2.3.4:443
+# [+] PROCESS: curl(1234) -> /usr/bin/curl
+# [+] NETWORK: curl -> 1.2.3.4:443
 # [+] FILE: curl open /etc/resolv.conf
 # [*] Exporting telemetry...
 # [+] Telemetry exported to /tmp/ebpf-telemetry/telemetry-1691234567.json
