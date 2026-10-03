@@ -25,12 +25,6 @@ from typing import Dict, List, Any, Optional
 from queue import Queue
 
 try:
-    from bcc import BPF
-    HAS_BCC = True
-except ImportError:
-    HAS_BCC = False
-
-try:
     import requests
     HAS_REQUESTS = True
 except ImportError:
@@ -398,7 +392,7 @@ class EBPFImplantAgent:
         }
 
         # Initialize state
-        self.bpf = None
+        self.loader_bin: Optional[Path] = None
         self.start_time = time.time()
 
         self.events_collected = {
@@ -452,7 +446,8 @@ class EBPFImplantAgent:
 
         try:
             cmd = [
-                "clang", "-O2", "-target", "bpf",
+                "clang", "-O2", "-g", "-target", "bpf", "-D__TARGET_ARCH_x86",
+                "-I", "/usr/include/x86_64-linux-gnu",
                 "-c", str(self.bpf_file),
                 "-o", str(output_file)
             ]
@@ -468,33 +463,53 @@ class EBPFImplantAgent:
             print("[!] clang not found. Install LLVM toolchain.")
             return False
 
+    def _ensure_loader_binary(self) -> Optional[Path]:
+        """Compile the native libbpf loader (userspace/src/loader.c) if needed"""
+        loader_src = Path(__file__).resolve().parent / "loader.c"
+        loader_bin = Path(__file__).resolve().parent / "loader"
+
+        if not loader_src.exists():
+            print(f"[!] Native loader source not found: {loader_src}")
+            return None
+
+        if loader_bin.exists() and loader_bin.stat().st_mtime >= loader_src.stat().st_mtime:
+            return loader_bin
+
+        print("[*] Building native libbpf loader...")
+        cmd = ["gcc", "-O2", "-Wall", "-o", str(loader_bin), str(loader_src), "-lbpf"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[!] Failed to build loader: {result.stderr}")
+            return None
+
+        print(f"[+] Built loader: {loader_bin}")
+        return loader_bin
+
     def load_bpf(self) -> bool:
-        """Load compiled eBPF bytecode into kernel"""
-        print("[*] Loading eBPF program into kernel...")
+        """Verify the compiled eBPF object and native loader are ready"""
+        print("[*] Preparing eBPF program for loading...")
 
-        if not HAS_BCC:
-            print("[!] BCC not available. Install python3-bcc or pip install bcc")
+        obj_file = self.bpf_file.with_suffix(".o")
+        if not obj_file.exists():
+            print(f"[!] Compiled object not found: {obj_file}")
             return False
 
-        try:
-            # Try to load pre-compiled object file
-            obj_file = self.bpf_file.with_suffix(".o")
-            if not obj_file.exists():
-                print(f"[!] Compiled object not found: {obj_file}")
-                return False
-
-            # Read compiled bytecode
-            with open(obj_file, "rb") as f:
-                bytecode = f.read()
-
-            # Load into kernel via BCC
-            self.bpf = BPF(raw_cb=bytecode)
-
-            print("[+] eBPF program loaded successfully")
-            return True
-        except Exception as e:
-            print(f"[!] Failed to load eBPF: {e}")
+        vmlinux = self.bpf_file.parent / "vmlinux.h"
+        if not vmlinux.exists():
+            print(f"[!] vmlinux.h not found next to {self.bpf_file.name}. Generate it with:")
+            print(f"    bpftool btf dump file /sys/kernel/btf/vmlinux format c > {vmlinux}")
             return False
+
+        self.loader_bin = self._ensure_loader_binary()
+        if not self.loader_bin:
+            print("[!] Failed to build native libbpf loader (requires gcc + libbpf-dev)")
+            return False
+
+        # BCC cannot load a pre-compiled CO-RE object, so the actual kernel load
+        # and ring buffer polling happens inside the native loader subprocess
+        # (see start_collection()).
+        print("[+] Ready to load via native libbpf loader")
+        return True
 
     def parse_process_event(self, data: bytes) -> Dict[str, Any]:
         """Parse process_event struct from ringbuf data"""
@@ -687,10 +702,119 @@ class EBPFImplantAgent:
         # Join with colons (simplified - doesn't compress ::)
         return ":".join(groups)
 
+    @staticmethod
+    def _loader_event_to_process(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Map native loader process JSON onto the parse_process_event() schema"""
+        ts = raw["timestamp"] / 1e9
+        return {
+            "type": "process",
+            "timestamp": ts,
+            "timestamp_iso": datetime.fromtimestamp(ts).isoformat(),
+            "pid": raw["pid"],
+            "ppid": raw["ppid"],
+            "uid": raw["uid"],
+            "gid": raw.get("gid", 0),
+            "comm": raw["comm"],
+            "filename": raw["filename"],
+            "argv": raw.get("argv", ""),
+        }
+
+    @staticmethod
+    def _loader_event_to_network(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Map native loader network JSON onto the parse_network_event() schema"""
+        ts = raw["timestamp"] / 1e9
+        protocol = raw.get("protocol", "TCP")
+        return {
+            "type": "network",
+            "timestamp": ts,
+            "timestamp_iso": datetime.fromtimestamp(ts).isoformat(),
+            "pid": raw["pid"],
+            "uid": raw["uid"],
+            "comm": raw["comm"],
+            "protocol": protocol,
+            "family": "IPv6" if ":" in raw.get("saddr", "") else "IPv4",
+            "sport": raw["sport"],
+            "dport": raw["dport"],
+            "saddr": raw["saddr"],
+            "daddr": raw["daddr"],
+            "direction": raw["direction"],
+            "tcp_state": raw.get("tcp_state") if protocol == "TCP" else None,
+            "bytes_sent": None,
+            "bytes_received": None,
+            "retransmits": None,
+            "is_dns": raw.get("is_dns", False),
+            "payload_size": 0,
+            "payload_preview": None,
+        }
+
+    @staticmethod
+    def _loader_event_to_file(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Map native loader file JSON onto the parse_file_event() schema"""
+        ts = raw["timestamp"] / 1e9
+        op_names = {1: "open", 2: "close", 3: "read", 4: "write"}
+        return {
+            "type": "file",
+            "timestamp": ts,
+            "timestamp_iso": datetime.fromtimestamp(ts).isoformat(),
+            "pid": raw["pid"],
+            "uid": raw["uid"],
+            "comm": raw["comm"],
+            "path": raw["path"],
+            "flags": raw["flags"],
+            "mode": raw["mode"],
+            "op_type": op_names.get(raw.get("op_type"), "unknown"),
+        }
+
+    def _ingest_loader_output(self, jsonl_file: Path) -> None:
+        """Read the native loader's JSONL output and route events through the
+        same side effects (IP analysis, BrainCell queueing, printing) as the
+        old BCC ring buffer callbacks."""
+        if not jsonl_file.exists():
+            return
+
+        print_events = self.config.get("debugging", {}).get("print_events", True)
+
+        with open(jsonl_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                event_type = raw.get("type")
+
+                if event_type == "process" and self.enabled_types.get("process_events", False):
+                    event = self._loader_event_to_process(raw)
+                    self.events_collected["process"].append(event)
+                    if print_events:
+                        print(f"[+] PROCESS: {event['comm']}({event['pid']}) → {event['filename']}")
+
+                elif event_type == "network" and self.enabled_types.get("network_events", False):
+                    event = self._loader_event_to_network(raw)
+                    self.events_collected["network"].append(event)
+                    if self.ip_analyzer:
+                        self.ip_analyzer.process_event(event)
+                    if self.braincell:
+                        self.braincell.queue_event(event)
+                    if print_events:
+                        dns_marker = " [DNS]" if event.get('is_dns') else ""
+                        print(f"[+] NET: {event['comm']}({event['pid']}) {event['protocol']}/{event['family']} "
+                              f"{event['direction']} {event['saddr']}:{event['sport']}"
+                              f"→{event['daddr']}:{event['dport']}{dns_marker}")
+
+                elif event_type == "file" and self.enabled_types.get("file_events", False):
+                    event = self._loader_event_to_file(raw)
+                    self.events_collected["file"].append(event)
+                    if print_events and event['op_type'] in ('open', 'read', 'write'):
+                        print(f"[+] FILE: {event['comm']} {event['op_type']} {event['path']}")
+
     def start_collection(self, duration: int = 60) -> bool:
-        """Poll ringbufs and collect events based on configuration"""
-        if not self.bpf:
-            print("[!] eBPF program not loaded")
+        """Run the native libbpf loader and ingest the captured events"""
+        if not self.loader_bin:
+            print("[!] Native loader not ready (call load_bpf() first)")
             return False
 
         # Check if any event types are enabled
@@ -702,73 +826,38 @@ class EBPFImplantAgent:
         if self.braincell:
             self.braincell.start()
 
+        enabled_names = [k.replace("_events", "") for k, v in self.enabled_types.items() if v]
         print(f"[*] Collecting events for {duration} seconds...")
-        print(f"[*] Enabled collectors: {', '.join(k for k, v in self.enabled_types.items() if v)}")
+        print(f"[*] Enabled collectors: {', '.join(enabled_names)}")
         if self.braincell and self.braincell.enabled:
             print(f"[*] BrainCell ingestion: {self.braincell.url}\n")
         else:
             print()
 
-        def process_callback(cpu, data, size):
-            if not self.enabled_types.get("process_events", False):
-                return
-            event = self.parse_process_event(data)
-            if event:
-                self.events_collected["process"].append(event)
-                if self.config.get("debugging", {}).get("print_events", True):
-                    print(f"[+] PROCESS: {event['comm']}({event['pid']}) → {event['filename']}")
-
-        def network_callback(cpu, data, size):
-            if not self.enabled_types.get("network_events", False):
-                return
-            event = self.parse_network_event(data)
-            if event:
-                self.events_collected["network"].append(event)
-
-                # Process through IP analyzer if enabled
-                if self.ip_analyzer:
-                    self.ip_analyzer.process_event(event)
-
-                # Queue to BrainCell if enabled
-                if self.braincell:
-                    self.braincell.queue_event(event)
-
-                if self.config.get("debugging", {}).get("print_events", True):
-                    dns_marker = " [DNS]" if event.get('is_dns') else ""
-                    proto = event.get('protocol', 'unknown')
-                    family = event.get('family', 'IPv4')
-                    direction = event.get('direction', 'unknown')
-                    state = f" ({event['tcp_state']})" if event.get('tcp_state') else ""
-                    print(f"[+] NET: {event['comm']}({event['pid']}) {proto}/{family} {direction} {event['saddr']}:{event['sport']}→{event['daddr']}:{event['dport']}{state}{dns_marker}")
-
-        def file_callback(cpu, data, size):
-            if not self.enabled_types.get("file_events", False):
-                return
-            event = self.parse_file_event(data)
-            if event:
-                self.events_collected["file"].append(event)
-                if self.config.get("debugging", {}).get("print_events", True):
-                    if event['op_type'] in ['open', 'read', 'write']:
-                        print(f"[+] FILE: {event['comm']} {event['op_type']} {event['path']}")
+        obj_file = self.bpf_file.with_suffix(".o")
+        jsonl_file = self.output_dir / "loader-events.jsonl"
+        direction = self.collect_config.get("network_events", {}).get("direction", "all")
+        cmd = [
+            str(self.loader_bin),
+            "--obj", str(obj_file),
+            "--duration", str(duration),
+            "--enable", ",".join(enabled_names),
+            "--direction", direction,
+            "--out", str(jsonl_file),
+        ]
 
         try:
-            # Attach only enabled ringbuffer readers
-            if self.enabled_types.get("process_events", False):
-                self.bpf["process_events"].open_ring_buffer(process_callback)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.stderr:
+                print(result.stderr.strip())
 
-            if self.enabled_types.get("network_events", False):
-                self.bpf["network_events"].open_ring_buffer(network_callback)
+            if result.returncode != 0:
+                print(f"[!] Native loader failed (exit {result.returncode})")
+                if self.braincell:
+                    self.braincell.stop()
+                return False
 
-            if self.enabled_types.get("file_events", False):
-                self.bpf["file_events"].open_ring_buffer(file_callback)
-
-            # Poll for duration
-            start = time.time()
-            while time.time() - start < duration:
-                try:
-                    self.bpf.perf_buffer_poll(timeout=100)
-                except KeyboardInterrupt:
-                    break
+            self._ingest_loader_output(jsonl_file)
 
             print(f"\n[+] Collection complete")
 
