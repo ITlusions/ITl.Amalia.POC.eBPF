@@ -19,11 +19,11 @@ Create a kernel-level telemetry implant that:
 
 ```
 KERNEL (eBPF Programs)              USERSPACE (Python Agent)
-├─ sched:sched_process_exec    ───→ Parse process events
-├─ sched:sched_process_fork    ───→ Build process tree
-├─ kprobe/tcp_v4_connect       ───→ Capture network flows
-├─ syscalls:sys_enter_openat   ───→ Track file access
-└─ ringbuf (IPC)               ───→ Efficient data transfer
+├─ sched:sched_process_exec    -> Parse process events
+├─ sched:sched_process_fork    -> Build process tree
+├─ kprobe/tcp_v4_connect       -> Capture network flows
+├─ syscalls:sys_enter_openat   -> Track file access
+└─ ringbuf (IPC)               -> Efficient data transfer
 ```
 
 ## Key Components
@@ -48,7 +48,7 @@ KERNEL (eBPF Programs)              USERSPACE (Python Agent)
   - `network_event` - Network connection data (40 bytes)
   - `file_event` - File access data (296 bytes)
 
-- **Ring Buffers** (kernel→userspace IPC):
+- **Ring Buffers** (kernel->userspace IPC):
   - `process_events` - 256KB ring buffer for processes
   - `network_events` - 256KB ring buffer for network
   - `file_events` - 256KB ring buffer for file access
@@ -88,13 +88,13 @@ KERNEL (eBPF Programs)              USERSPACE (Python Agent)
 
 **Verification script that checks:**
 
-- ✓ Kernel version >= 5.8
-- ✓ CONFIG_BPF and CONFIG_HAVE_EBPF_JIT enabled
-- ✓ clang, llvm, python3, bpftool installed
-- ✓ debugfs and bpffs mounted
-- ✓ Tracepoints available
-- ✓ RLIMIT_MEMLOCK sufficient
-- ✓ Test eBPF program can load
+- [PASS] Kernel version >= 5.8
+- [PASS] CONFIG_BPF and CONFIG_HAVE_EBPF_JIT enabled
+- [PASS] clang, llvm, python3, bpftool installed
+- [PASS] debugfs and bpffs mounted
+- [PASS] Tracepoints available
+- [PASS] RLIMIT_MEMLOCK sufficient
+- [PASS] Test eBPF program can load
 
 **Output**: PASS/FAIL report with remediation steps
 

@@ -1,8 +1,8 @@
 {
   "implant": {
-    "id": "ebpf-sensor-poc-01",
+    "id": "ebpf-sensor-inbound-01",
     "sensor_type": "ebpf-kernel-level",
-    "description": "Kernel-level telemetry implant for red team operations"
+    "description": "Inbound-only network telemetry profile (incoming connections/datagrams)"
   },
   "collection": {
     "process_events": {
@@ -15,11 +15,12 @@
     },
     "network_events": {
       "enabled": true,
-      "description": "Monitor network connections (TCP inbound/outbound)",
-      "direction": "all",
+      "description": "Monitor inbound network connections only (TCP accept, UDP receive)",
+      "direction": "inbound",
       "hooks": [
-        "kprobe/tcp_v4_connect",
-        "kprobe/tcp_v4_syn_recv_sock"
+        "kprobe/tcp_v4_syn_recv_sock",
+        "kprobe/tcp_v6_syn_recv_sock",
+        "kprobe/__udp4_lib_rcv"
       ]
     },
     "file_events": {
