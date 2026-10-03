@@ -16,6 +16,7 @@
     "network_events": {
       "enabled": true,
       "description": "Monitor network connections (TCP inbound/outbound)",
+      "direction": "all",
       "hooks": [
         "kprobe/tcp_v4_connect",
         "kprobe/tcp_v4_syn_recv_sock"

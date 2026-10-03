@@ -1,8 +1,7 @@
-#include <linux/bpf.h>
+#include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
-#include <linux/sched.h>
-#include <linux/in.h>
-#include <linux/in6.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_core_read.h>
 
 /* Event structures matching JSON output format */
 
@@ -115,17 +114,25 @@ int trace_exec(struct trace_event_raw_sched_process_exec *ctx)
     if (!e)
         return 0;
 
+    struct task_struct *task;
+
     e->timestamp = bpf_ktime_get_ns();
     e->pid = bpf_get_current_pid_tgid() >> 32;
     e->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     e->gid = bpf_get_current_uid_gid() >> 32;
-    e->ppid = ctx->ppid;
 
-    bpf_probe_read_kernel_str(&e->comm, sizeof(e->comm), &ctx->comm);
-    bpf_probe_read_kernel_str(&e->filename, sizeof(e->filename), &ctx->filename);
+    /* sched_process_exec has no ppid/comm/argv fields; derive from task_struct */
+    task = (struct task_struct *)bpf_get_current_task();
+    e->ppid = BPF_CORE_READ(task, real_parent, tgid);
 
-    /* Capture first 512 bytes of argv if available */
-    bpf_probe_read_user_str(&e->argv, sizeof(e->argv), (void *)ctx->argv);
+    bpf_get_current_comm(&e->comm, sizeof(e->comm));
+
+    /* filename is a __data_loc string, resolve its offset within ctx */
+    bpf_probe_read_kernel_str(&e->filename, sizeof(e->filename),
+                               (void *)ctx + (ctx->__data_loc_filename & 0xFFFF));
+
+    /* argv is not available from this tracepoint */
+    e->argv[0] = '\0';
 
     bpf_ringbuf_submit(e, 0);
     return 0;
@@ -147,7 +154,9 @@ int trace_fork(struct trace_event_raw_sched_process_fork *ctx)
     e->uid = bpf_get_current_uid_gid() & 0xFFFFFFFF;
     e->gid = bpf_get_current_uid_gid() >> 32;
 
-    bpf_probe_read_kernel_str(&e->comm, sizeof(e->comm), &ctx->child_comm);
+    /* child_comm is a __data_loc string, resolve its offset within ctx */
+    bpf_probe_read_kernel_str(&e->comm, sizeof(e->comm),
+                              (void *)ctx + (ctx->__data_loc_child_comm & 0xFFFF));
 
     bpf_ringbuf_submit(e, 0);
     return 0;
