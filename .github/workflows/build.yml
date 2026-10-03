@@ -1,0 +1,120 @@
+name: Build eBPF Implant Binaries
+
+# Builds the CO-RE eBPF object and the native libbpf loader for two targets:
+#   - linux-x86_64  (Ubuntu runners, matches standard servers/VMs/WSL2)
+#   - linux-arm64   (native arm64 runners, matches Raspberry Pi 4/5 64-bit OS)
+#
+# Native runners are used per architecture (not cross-compilation) because
+# vmlinux.h and the BPF_CORE_READ register macros (PT_REGS_PARM1 etc.) are
+# architecture-specific; building natively avoids cross-toolchain mismatches.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            arch_define: __TARGET_ARCH_x86
+            multiarch: x86_64-linux-gnu
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            arch_define: __TARGET_ARCH_arm64
+            multiarch: aarch64-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.name }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang llvm libelf-dev zlib1g-dev libbpf-dev \
+            pkg-config linux-tools-common linux-tools-generic
+
+      - name: Verify kernel BTF is available
+        run: |
+          if [[ ! -r /sys/kernel/btf/vmlinux ]]; then
+            echo "::error::/sys/kernel/btf/vmlinux not readable on this runner (CONFIG_DEBUG_INFO_BTF required for CO-RE)"
+            exit 1
+          fi
+
+      - name: Resolve a working bpftool binary
+        id: bpftool
+        run: |
+          BPFTOOL=$(command -v bpftool || true)
+          if [[ -z "$BPFTOOL" ]] || ! "$BPFTOOL" version > /dev/null 2>&1; then
+            BPFTOOL=$(find /usr/lib/linux-tools* -maxdepth 1 -name bpftool 2>/dev/null | head -n1)
+          fi
+          if [[ -z "$BPFTOOL" ]]; then
+            echo "::error::No working bpftool found"
+            exit 1
+          fi
+          echo "path=$BPFTOOL" >> "$GITHUB_OUTPUT"
+          echo "Using bpftool: $BPFTOOL"
+
+      - name: Generate vmlinux.h from kernel BTF
+        run: |
+          "${{ steps.bpftool.outputs.path }}" btf dump file /sys/kernel/btf/vmlinux format c \
+            > kernel/programs/vmlinux.h
+          wc -l kernel/programs/vmlinux.h
+
+      - name: Compile eBPF program (sensor.bpf.o)
+        run: |
+          clang -O2 -g -target bpf -D${{ matrix.arch_define }} \
+            -I "/usr/include/${{ matrix.multiarch }}" \
+            -c kernel/programs/sensor.bpf.c -o kernel/programs/sensor.bpf.o
+
+      - name: Compile native libbpf loader
+        run: |
+          gcc -O2 -Wall -o userspace/src/loader userspace/src/loader.c -lbpf
+
+      - name: Package release bundle
+        run: |
+          STAGE=dist/ebpf-implant-${{ matrix.name }}
+          mkdir -p "$STAGE"
+          cp kernel/programs/sensor.bpf.o kernel/programs/vmlinux.h "$STAGE/"
+          cp userspace/src/loader userspace/src/loader.c "$STAGE/"
+          cp userspace/src/implant_agent.py userspace/src/live_stats.py "$STAGE/"
+          cp config.json config-inbound.json "$STAGE/"
+          tar -C dist -czf "dist/ebpf-implant-${{ matrix.name }}.tar.gz" "ebpf-implant-${{ matrix.name }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebpf-implant-${{ matrix.name }}
+          path: dist/ebpf-implant-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release and attach binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*.tar.gz
+          generate_release_notes: true
