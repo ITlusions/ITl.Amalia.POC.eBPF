@@ -49,12 +49,12 @@ ITL.Amalia.Poc.eBpf/
 ├── build/                     # Installation & testing
 │   ├── install.sh             # Automated OS detection & setup
 │   └── test_setup.sh          # Capability verification
-├── docs/                      # Documentation
-│   ├── ARCHITECTURE.md        # System design & data flow
-│   ├── SETUP.md               # Development environment
-│   ├── USAGE.md               # Advanced usage patterns
-│   ├── QUICKSTART.md          # 5-minute deployment
-│   └── SECURITY.md            # Detection considerations
+├── docs/                      # Documentation (numbered x.y-title.md)
+│   ├── 2.1-architecture.md    # System design & data flow
+│   ├── 1.2-setup.md           # Development environment
+│   ├── 3.1-usage.md           # Advanced usage patterns
+│   ├── 1.1-quickstart.md      # 5-minute deployment
+│   └── ...                    # see docs/ for the full numbered index
 ├── CMakeLists.txt             # Build configuration
 ├── Makefile                   # Alternative build
 └── CLAUDE.md                  # Project guidelines
@@ -174,10 +174,10 @@ sudo /opt/ebpf-implant/implant_agent.py \
 
 ## Documentation
 
-- **[QUICKSTART.md](docs/QUICKSTART.md)** - 5-minute deployment guide
-- **[USAGE.md](docs/USAGE.md)** - Advanced usage patterns and integration
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and concepts
-- **[SETUP.md](docs/SETUP.md)** - Development environment configuration
+- **[1.1-quickstart.md](docs/1.1-quickstart.md)** - 5-minute deployment guide
+- **[3.1-usage.md](docs/3.1-usage.md)** - Advanced usage patterns and integration
+- **[2.1-architecture.md](docs/2.1-architecture.md)** - System design and concepts
+- **[1.2-setup.md](docs/1.2-setup.md)** - Development environment configuration
 
 ## Use Cases
 
@@ -229,7 +229,7 @@ Unauthorized use is illegal.
 
 Contributions welcome! Focus areas:
 - Additional event types (DNS, IPC, memory access)
-- Evasion techniques (rootkit integration, audit log filtering)
+- Sensor tamper detection (program unload auditing, ring buffer loss alerts)
 - Detection improvements and signatures
 - Platform support (ARM, x86_64, other architectures)
 

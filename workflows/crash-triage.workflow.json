@@ -1,0 +1,253 @@
+{
+  "$schema": "./schema/workflow.schema.json",
+  "id": "crash-triage",
+  "name": "Crash to root-cause triage",
+  "version": "1.0.0",
+  "scope": {
+    "authorization": "RoE-ITlusions-Testlab-2026 (valid 2026-04-27 to 2026-12-31)",
+    "environment": "ITlusions-owned or managed testlab systems only"
+  },
+  "steps": [
+    {
+      "id": "crash-00-authorization",
+      "name": "Authorization and scope",
+      "description": "Confirm the RoE is valid and the target host is in scope before any collection or reproduction.",
+      "status": "planned",
+      "inputs": ["RoE document", "target host or CIDR"],
+      "outputs": ["scope decision", "operator identity", "engagement id"],
+      "standards": ["RoE-ITlusions-Testlab-2026", "ISO/IEC 27001 Annex A", "NIST SP 800-115", "PTES"],
+      "mappings": {
+        "tools": [],
+        "features": [],
+        "controls": [
+          { "name": "RoE loading and expiry check in POCBuilder", "path": "docs/7.3-mitigation-checklist.md", "status": "planned" },
+          { "name": "CIDR target validation (validate_target)", "path": "docs/7.1-dataflow-and-enforcement-points.md", "status": "planned" },
+          { "name": "Operator identity binding", "path": "docs/7.3-mitigation-checklist.md", "status": "planned" }
+        ]
+      },
+      "gaps": ["No scope check or operator binding exists in code yet"],
+      "next": ["crash-01-detection"]
+    },
+    {
+      "id": "crash-01-detection",
+      "name": "Detection and capture",
+      "description": "Record the crash: signal, pid, fault address, instruction pointer, time.",
+      "status": "partial",
+      "inputs": ["kernel signal delivery", "process events"],
+      "outputs": ["CrashEvent"],
+      "standards": ["NIST SP 800-61", "ISO/IEC 27035"],
+      "mappings": {
+        "tools": [
+          { "name": "CrashDetector.process_crash_event", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "sensor.bpf.c", "path": "kernel/programs/sensor.bpf.c", "status": "partial" }
+        ],
+        "features": [
+          { "name": "Process exec and fork events", "path": "kernel/programs/sensor.bpf.c", "status": "implemented" }
+        ],
+        "controls": []
+      },
+      "gaps": ["sensor.bpf.c has no signal or crash hook, so the detector has no kernel event source"],
+      "next": ["crash-02-evidence"]
+    },
+    {
+      "id": "crash-02-evidence",
+      "name": "Evidence preservation",
+      "description": "Keep the coredump, memory map and binary identity before the process state is lost.",
+      "status": "partial",
+      "inputs": ["CrashEvent"],
+      "outputs": ["coredump path", "memory map", "binary path"],
+      "standards": ["RFC 3227", "ISO/IEC 27037", "NIST SP 800-86"],
+      "mappings": {
+        "tools": [
+          { "name": "CrashDetector.enable_coredumps", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "CrashDetector._find_coredump", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "CrashDetector._read_memory_maps", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": [
+          { "name": "Audit log of collection actions", "path": "docs/7.3-mitigation-checklist.md", "status": "planned" }
+        ]
+      },
+      "gaps": ["No file hashing or chain of custody record", "No build-id capture at exec time"],
+      "next": ["crash-03-triage"]
+    },
+    {
+      "id": "crash-03-triage",
+      "name": "Initial triage",
+      "description": "Classify the crash by signal and memory region and give a first risk level.",
+      "status": "implemented",
+      "inputs": ["CrashEvent", "memory map"],
+      "outputs": ["CrashTriage", "risk level"],
+      "standards": ["CWE", "CERT exploitable heuristics", "sanitizer reports"],
+      "mappings": {
+        "tools": [
+          { "name": "CrashDetector.triage_crash", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "CrashDetector._map_rip_location", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Crash detection layer", "path": "userspace/src/detection/crash_detection", "status": "partial" }
+        ],
+        "controls": []
+      },
+      "gaps": [],
+      "next": ["crash-04-dedup"]
+    },
+    {
+      "id": "crash-04-dedup",
+      "name": "Deduplication",
+      "description": "Group crashes that share the same normalized stack so each bug is analysed once.",
+      "status": "planned",
+      "inputs": ["CrashEvent", "symbolized stack"],
+      "outputs": ["crash bucket id"],
+      "standards": ["Industry practice (fuzzer triage)"],
+      "mappings": { "tools": [], "features": [], "controls": [] },
+      "gaps": ["No stack hashing or bucket store"],
+      "next": ["crash-05-provenance"]
+    },
+    {
+      "id": "crash-05-provenance",
+      "name": "Provenance correlation",
+      "description": "Link the crash back to the process lineage and the last network data the process received.",
+      "status": "partial",
+      "inputs": ["CrashEvent", "process_events", "network_events"],
+      "outputs": ["provenance chain: peer, socket, last receives, lineage"],
+      "standards": ["NIST SP 800-86", "MITRE ATT&CK", "OCSF or ECS event schema"],
+      "mappings": {
+        "tools": [
+          { "name": "IP analyzer", "path": "userspace/src/detection/ip_analysis/analyzer.py", "status": "implemented" },
+          { "name": "Sigma-Lite detector", "path": "userspace/src/detection/sigma_lite/detector.py", "status": "implemented" },
+          { "name": "ThreatCorrelator.correlate", "path": "userspace/src/detection/correlation/threat_correlator.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Network connection events", "path": "kernel/programs/sensor.bpf.c", "status": "partial" },
+          { "name": "Process lineage (pid, ppid)", "path": "kernel/programs/sensor.bpf.c", "status": "implemented" }
+        ],
+        "controls": []
+      },
+      "gaps": [
+        "No recv hook, so the last data received per process is not captured",
+        "Payload capture is a stub and byte counters are not filled in",
+        "Inbound connection pid is taken in softirq context and can be wrong",
+        "No socket cookie to key a connection to a process"
+      ],
+      "next": ["crash-06-root-cause"]
+    },
+    {
+      "id": "crash-06-root-cause",
+      "name": "Root-cause analysis",
+      "description": "Find the faulty function and defect type from the symbolized stack and crash class.",
+      "status": "partial",
+      "inputs": ["coredump", "memory map", "CrashTriage"],
+      "outputs": ["defect class", "faulting function"],
+      "standards": ["CWE", "CERT C Secure Coding", "ISO/IEC 27041", "ISO/IEC 27042"],
+      "mappings": {
+        "tools": [
+          { "name": "CrashDetector.analyze_crash", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "CrashDetector._unwind_stack", "path": "userspace/src/detection/crash_detection/detector.py", "status": "partial" }
+        ],
+        "features": [],
+        "controls": []
+      },
+      "gaps": ["No kernel-side user stack capture", "No symbolization against build-ids"],
+      "next": ["crash-07-reproduction"]
+    },
+    {
+      "id": "crash-07-reproduction",
+      "name": "Controlled reproduction",
+      "description": "Reproduce the crash in an isolated lab to confirm the cause. Only against in-scope testlab targets.",
+      "status": "partial",
+      "inputs": ["crash report", "scope decision"],
+      "outputs": ["reproduction result", "success rate"],
+      "standards": ["ISO/IEC 30111", "NIST SP 800-115", "RoE-ITlusions-Testlab-2026"],
+      "mappings": {
+        "tools": [
+          { "name": "POCBuilder", "path": "userspace/src/examples/poc_builder.py", "status": "partial" },
+          { "name": "Vulnerable test app", "path": "examples/vulnerable-test-app", "status": "partial" }
+        ],
+        "features": [],
+        "controls": [
+          { "name": "Target validation before each test iteration", "path": "docs/7.1-dataflow-and-enforcement-points.md", "status": "planned" },
+          { "name": "Scope tag in generated artefacts", "path": "docs/7.1-dataflow-and-enforcement-points.md", "status": "planned" },
+          { "name": "Per-iteration audit log", "path": "docs/7.3-mitigation-checklist.md", "status": "planned" }
+        ]
+      },
+      "gaps": [
+        "POCBuilder has no scope validation or audit trail yet; do not run it until Tier 1 controls land",
+        "examples/vulnerable-test-app is not committed yet"
+      ],
+      "next": ["crash-08-impact"]
+    },
+    {
+      "id": "crash-08-impact",
+      "name": "Impact and prioritization",
+      "description": "Rate severity and likelihood of exploitation.",
+      "status": "partial",
+      "inputs": ["root cause", "provenance chain"],
+      "outputs": ["severity", "priority"],
+      "standards": ["CVSS v4.0", "EPSS", "CISA SSVC", "CISA KEV"],
+      "mappings": {
+        "tools": [
+          { "name": "ThreatCorrelator verdict", "path": "userspace/src/detection/correlation/threat_correlator.py", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": []
+      },
+      "gaps": ["CVSS or SSVC scoring is done by hand outside the sensor"],
+      "next": ["crash-09-mitigation"]
+    },
+    {
+      "id": "crash-09-mitigation",
+      "name": "Containment and mitigation",
+      "description": "Apply a patch, configuration change or interim filter on the affected system.",
+      "status": "external",
+      "inputs": ["priority", "root cause"],
+      "outputs": ["fix applied", "residual risk"],
+      "standards": ["NIST SP 800-61", "NIST SP 800-40", "NIST SP 800-218"],
+      "mappings": { "tools": [], "features": [], "controls": [] },
+      "gaps": ["The sensor only observes; it has no enforcement or virtual patching arm"],
+      "next": ["crash-10-reporting"]
+    },
+    {
+      "id": "crash-10-reporting",
+      "name": "Reporting and disclosure",
+      "description": "Record findings and share them with the right parties.",
+      "status": "partial",
+      "inputs": ["crash report", "verdict", "fix status"],
+      "outputs": ["crash report JSON", "BrainCell incident or vuln report", "advisory"],
+      "standards": ["ISO/IEC 29147", "CVE", "CSAF 2.0", "VEX", "CERT/CC CVD guide"],
+      "mappings": {
+        "tools": [
+          { "name": "CrashDetector.export_crash_report", "path": "userspace/src/detection/crash_detection/detector.py", "status": "implemented" },
+          { "name": "BrainCellWebSocketClient", "path": "userspace/src/integrations/braincell/client.py", "status": "implemented" },
+          { "name": "AmaliaExporter.export_threat_verdict", "path": "userspace/src/integrations/amalia/exporter.py", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": [
+          { "name": "Audit log shipped to BrainCell incidents", "path": "docs/7.3-mitigation-checklist.md", "status": "planned" }
+        ]
+      },
+      "gaps": ["No CSAF or VEX output"],
+      "next": ["crash-11-verification"]
+    },
+    {
+      "id": "crash-11-verification",
+      "name": "Verification and lessons learned",
+      "description": "Confirm the fix, add a regression check and update detection content.",
+      "status": "partial",
+      "inputs": ["fix status", "crash report"],
+      "outputs": ["regression test", "new or tuned rule"],
+      "standards": ["NIST SP 800-61", "ISO/IEC 27035-2"],
+      "mappings": {
+        "tools": [
+          { "name": "YARA rules manager", "path": "userspace/src/detection/yara/rules_manager.py", "status": "implemented" },
+          { "name": "Sigma-Lite chains", "path": "userspace/src/detection/sigma_lite/detector.py", "status": "implemented" },
+          { "name": "test_setup.sh", "path": "build/test_setup.sh", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": []
+      },
+      "gaps": ["No automated regression harness for crash cases"],
+      "next": []
+    }
+  ]
+}
