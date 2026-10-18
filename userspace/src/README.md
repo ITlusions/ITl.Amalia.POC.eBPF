@@ -10,9 +10,6 @@ Welcome to the eBPF implant userspace agent. This directory contains all Python 
 # Basic collection (collect events for 60 seconds)
 python -m application.implant_agent --collect 60
 
-# With stealth mode enabled
-python -m application.implant_agent --stealth --collect 60
-
 # Export to specific location
 python -m application.implant_agent --export /tmp/my-telemetry.json
 ```
@@ -32,17 +29,15 @@ python examples/braincell_streaming.py
 
 ## Architecture Overview
 
-**8 Domain Layers:**
+**6 Domain Layers:**
 - `application/` — Main orchestrator
 - `detection/` — Threat analysis (4-layer: IP, YARA, Sigma-Lite, Correlation)
 - `collection/` — Event models
-- `anti_forensics/` — Stealth (7 modules)
-- `c2/` — Command & control (6 modules)
 - `integrations/` — External systems
 - `core/` — Infrastructure
 - `examples/` — Usage demonstrations
 
-**42 Python modules organized with single responsibility principle.**
+Modules follow the single responsibility principle.
 
 ## Key Features
 
@@ -52,16 +47,6 @@ python examples/braincell_streaming.py
 2. **YARA Detection** — Signature matching (25+ rules)
 3. **Sigma-Lite** — Attack chain detection (6 behavioral patterns)
 4. **Threat Correlator** — Unified verdict with confidence
-
-### 7-Module Stealth Layer
-
-- Audit suppression, process hiding, memory encryption, artifact cleaning, kernel obfuscation, detection evasion, orchestration
-
-### Dual C2 Channels
-
-- **Primary:** HTTPS with certificate pinning
-- **Fallback:** DNS TXT tunneling
-- **Rate Limiting:** Adaptive jitter (±30%)
 
 ## Directory Structure
 
@@ -73,8 +58,6 @@ src/
 ├── core/              # Infrastructure (config, logging, ABCs)
 ├── collection/        # Event models
 ├── detection/         # Threat analysis
-├── anti_forensics/    # Stealth (7 modules)
-├── c2/                # C2 communication (6 modules)
 ├── integrations/      # External systems
 ├── application/       # Main orchestrator
 ├── examples/          # Usage demos
@@ -118,8 +101,6 @@ implant.stop()
 Edit `config.json` or set environment variables:
 ```bash
 export IMPLANT_ID="my-sensor"
-export ENABLE_STEALTH="true"
-export C2_SERVER_URL="http://c2.attacker.com"
 ```
 
 ## Deployment Modes
@@ -178,8 +159,6 @@ Old files → New locations:
 - `ip_analysis.py` → `detection/ip_analysis/`
 - `yara_*.py` → `detection/yara/`
 - `sigma_lite_detector.py` → `detection/sigma_lite/`
-- `anti_forensics.py` → 7 modules in `anti_forensics/`
-- `c2_client.py` → 6 modules in `c2/`
 - `braincell_websocket.py` → `integrations/braincell/`
 
 **Benefits:** Single responsibility, easier testing, clear dependencies, no circular imports.
