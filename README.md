@@ -229,7 +229,7 @@ Unauthorized use is illegal.
 
 Contributions welcome! Focus areas:
 - Additional event types (DNS, IPC, memory access)
-- Evasion techniques (rootkit integration, audit log filtering)
+- Sensor tamper detection (program unload auditing, ring buffer loss alerts)
 - Detection improvements and signatures
 - Platform support (ARM, x86_64, other architectures)
 
