@@ -316,8 +316,8 @@ cat /etc/passwd
 | userspace/src/implant_agent.py | 550 | Python loader & collector |
 | build/install.sh | 250 | Automated installation |
 | build/test_setup.sh | 300 | Capability verification |
-| docs/QUICKSTART.md | 200 | 5-minute deployment |
-| docs/USAGE.md | 400 | Advanced patterns |
+| docs/1.1-quickstart.md | 200 | 5-minute deployment |
+| docs/3.1-usage.md | 400 | Advanced patterns |
 | CHAT_TRANSCRIPT.md | 1250 | Complete design chat |
 
 ## References

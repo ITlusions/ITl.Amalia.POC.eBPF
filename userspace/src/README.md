@@ -87,10 +87,10 @@ src/
 | Document | Purpose |
 |----------|--------|
 | `STRUCTURE.md` | Complete DDD architecture guide |
-| `ARCHITECTURE.md` | Platform design and threat detection |
+| `../../docs/2.1-architecture.md` | Platform design and threat detection |
 | `CLAUDE.md` | Project mission and deployment |
-| `SIGMA_LITE_CHAINS.md` | Behavioral attack patterns |
-| `QUICKSTART.md` | 5-minute deployment |
+| `../../docs/2.5-sigma-lite-chains.md` | Behavioral attack patterns |
+| `../../docs/1.1-quickstart.md` | 5-minute deployment |
 
 ## Common Tasks
 
@@ -188,7 +188,7 @@ Old files → New locations:
 
 1. Read `STRUCTURE.md` for module details
 2. Review `examples/` for working code
-3. See `ARCHITECTURE.md` for platform design
+3. See `../../docs/2.1-architecture.md` for platform design
 4. Deploy with `build/install.sh`
 
 ---

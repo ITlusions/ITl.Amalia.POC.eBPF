@@ -333,7 +333,7 @@ python -m pytest application/ --mock-external
 
 ## Documentation References
 
-- `ARCHITECTURE.md` — High-level platform design
+- `../../docs/2.1-architecture.md` — High-level platform design
 - `CLAUDE.md` — Project mission and deployment modes
-- `SIGMA_LITE_CHAINS.md` — Behavioral pattern documentation
-- `QUICKSTART.md` — 5-minute deployment guide
+- `../../docs/2.5-sigma-lite-chains.md` — Behavioral pattern documentation
+- `../../docs/1.1-quickstart.md` — 5-minute deployment guide
