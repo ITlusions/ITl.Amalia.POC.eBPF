@@ -1,0 +1,228 @@
+{
+  "$schema": "./schema/workflow.schema.json",
+  "id": "telemetry-detection",
+  "name": "Telemetry collection to threat verdict",
+  "version": "1.0.0",
+  "scope": {
+    "authorization": "RoE-ITlusions-Testlab-2026 (valid 2026-04-27 to 2026-12-31)",
+    "environment": "ITlusions-owned or managed testlab systems only"
+  },
+  "steps": [
+    {
+      "id": "tel-01-install",
+      "name": "Install and verify host",
+      "description": "Install dependencies, check kernel and BPF support, compile the program.",
+      "status": "implemented",
+      "inputs": ["Linux 5.8+ host"],
+      "outputs": ["/opt/ebpf-implant", "compiled sensor object"],
+      "standards": ["Kernel BPF documentation"],
+      "mappings": {
+        "tools": [
+          { "name": "install.sh", "path": "build/install.sh", "status": "implemented" },
+          { "name": "test_setup.sh", "path": "build/test_setup.sh", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": [
+          { "name": "Kernel version and capability check", "path": "build/test_setup.sh", "status": "implemented" }
+        ]
+      },
+      "gaps": ["build/ is listed in .gitignore, so install.sh and test_setup.sh are not versioned in git"],
+      "next": ["tel-02-load"]
+    },
+    {
+      "id": "tel-02-load",
+      "name": "Load and configure",
+      "description": "Read configuration, compile if needed and load the BPF program.",
+      "status": "implemented",
+      "inputs": ["config.json"],
+      "outputs": ["attached hooks"],
+      "standards": [],
+      "mappings": {
+        "tools": [
+          { "name": "implant_agent.py", "path": "userspace/src/application/implant_agent.py", "status": "implemented" },
+          { "name": "Config manager", "path": "userspace/src/core/config.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Per-event-type collection toggles", "path": "config.json", "status": "implemented" }
+        ],
+        "controls": []
+      },
+      "gaps": [],
+      "next": ["tel-03-collect"]
+    },
+    {
+      "id": "tel-03-collect",
+      "name": "Kernel collection",
+      "description": "Hooks write events into per-type ring buffers.",
+      "status": "partial",
+      "inputs": ["syscalls", "scheduler events", "TCP and UDP activity"],
+      "outputs": ["process_events", "network_events", "file_events"],
+      "standards": [],
+      "mappings": {
+        "tools": [
+          { "name": "sensor.bpf.c", "path": "kernel/programs/sensor.bpf.c", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Process exec and fork", "path": "kernel/programs/sensor.bpf.c", "status": "implemented" },
+          { "name": "TCP v4 and v6, UDP, DNS flag, close", "path": "kernel/programs/sensor.bpf.c", "status": "implemented" },
+          { "name": "File open, read, write", "path": "kernel/programs/sensor.bpf.c", "status": "partial" }
+        ],
+        "controls": [
+          { "name": "Event loss threshold", "path": "config.json", "status": "implemented" }
+        ]
+      },
+      "gaps": [
+        "argv is empty on exec events",
+        "Byte counters, retransmits and 96-byte payload are not filled in",
+        "Read and write events carry no path or file descriptor"
+      ],
+      "next": ["tel-04-parse"]
+    },
+    {
+      "id": "tel-04-parse",
+      "name": "Poll and parse",
+      "description": "Userspace polls the buffers about every 100 ms and unpacks the binary structs.",
+      "status": "implemented",
+      "inputs": ["ring buffers"],
+      "outputs": ["typed event dicts"],
+      "standards": [],
+      "mappings": {
+        "tools": [
+          { "name": "implant_agent.py", "path": "userspace/src/application/implant_agent.py", "status": "implemented" },
+          { "name": "Event models", "path": "userspace/src/collection/models.py", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": []
+      },
+      "gaps": [],
+      "next": ["tel-05-ip-analysis", "tel-06-yara", "tel-07-sigma"]
+    },
+    {
+      "id": "tel-05-ip-analysis",
+      "name": "Layer 1: IP behavioral analysis",
+      "description": "Profile each remote IP and score it 0-100.",
+      "status": "implemented",
+      "inputs": ["network events"],
+      "outputs": ["IP profile", "threat score"],
+      "standards": ["MITRE ATT&CK"],
+      "mappings": {
+        "tools": [
+          { "name": "IP analyzer", "path": "userspace/src/detection/ip_analysis/analyzer.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Suspicious port, volume, DNS and port diversity scoring", "path": "userspace/src/detection/ip_analysis/analyzer.py", "status": "implemented" }
+        ],
+        "controls": [
+          { "name": "min_threat_score_report", "path": "config.json", "status": "implemented" }
+        ]
+      },
+      "gaps": ["Volume rules depend on byte counters that are not filled in yet"],
+      "next": ["tel-08-correlation"]
+    },
+    {
+      "id": "tel-06-yara",
+      "name": "Layer 2: YARA-style signatures",
+      "description": "Match events and profiles against pattern rules from the configured source.",
+      "status": "implemented",
+      "inputs": ["events", "IP profiles", "rules"],
+      "outputs": ["rule matches with confidence"],
+      "standards": ["YARA"],
+      "mappings": {
+        "tools": [
+          { "name": "YARA detector", "path": "userspace/src/detection/yara/detector.py", "status": "implemented" },
+          { "name": "YARA rules manager", "path": "userspace/src/detection/yara/rules_manager.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Rule sources: embedded, file, git, BrainCell", "path": "examples/yara-rules-example.json", "status": "implemented" }
+        ],
+        "controls": [
+          { "name": "min_confidence and fallback to embedded rules", "path": "config.json", "status": "implemented" }
+        ]
+      },
+      "gaps": ["Rules matching argv or payload text have nothing to match yet"],
+      "next": ["tel-08-correlation"]
+    },
+    {
+      "id": "tel-07-sigma",
+      "name": "Layer 3: Sigma-Lite chains",
+      "description": "Detect multi-step behavior per process inside a time window.",
+      "status": "implemented",
+      "inputs": ["buffered events per process"],
+      "outputs": ["chain matches with MITRE techniques"],
+      "standards": ["Sigma", "MITRE ATT&CK"],
+      "mappings": {
+        "tools": [
+          { "name": "Sigma-Lite detector", "path": "userspace/src/detection/sigma_lite/detector.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "DNS exfil, lateral movement, privilege escalation, credential access, reconnaissance, injection chains", "path": "docs/2.5-sigma-lite-chains.md", "status": "implemented" }
+        ],
+        "controls": []
+      },
+      "gaps": ["DNS exfil chain needs byte counts that are not filled in yet"],
+      "next": ["tel-08-correlation"]
+    },
+    {
+      "id": "tel-08-correlation",
+      "name": "Layer 4: Correlation and verdict",
+      "description": "Combine all signals into GREEN, YELLOW or RED with confidence and reasons.",
+      "status": "implemented",
+      "inputs": ["IP profile", "YARA matches", "Sigma chains"],
+      "outputs": ["ThreatVerdict"],
+      "standards": ["MITRE ATT&CK"],
+      "mappings": {
+        "tools": [
+          { "name": "ThreatCorrelator", "path": "userspace/src/detection/correlation/threat_correlator.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Agreement-based confidence", "path": "userspace/src/detection/correlation/threat_correlator.py", "status": "implemented" }
+        ],
+        "controls": []
+      },
+      "gaps": [],
+      "next": ["tel-09-export"]
+    },
+    {
+      "id": "tel-09-export",
+      "name": "Export",
+      "description": "Write JSON files and send verdicts to Amalia and BrainCell.",
+      "status": "implemented",
+      "inputs": ["events", "verdicts"],
+      "outputs": ["JSON files", "Amalia ingest", "BrainCell notes"],
+      "standards": [],
+      "mappings": {
+        "tools": [
+          { "name": "AmaliaExporter", "path": "userspace/src/integrations/amalia/exporter.py", "status": "implemented" },
+          { "name": "BrainCellWebSocketClient", "path": "userspace/src/integrations/braincell/client.py", "status": "implemented" }
+        ],
+        "features": [
+          { "name": "Batching and retry with backoff", "path": "userspace/src/integrations/braincell/client.py", "status": "implemented" }
+        ],
+        "controls": [
+          { "name": "Bearer token auth", "path": "config.json", "status": "implemented" }
+        ]
+      },
+      "gaps": [],
+      "next": ["tel-10-deploy"]
+    },
+    {
+      "id": "tel-10-deploy",
+      "name": "Run mode and deployment",
+      "description": "Run once, as a systemd service, or as a Kubernetes DaemonSet.",
+      "status": "implemented",
+      "inputs": ["install result"],
+      "outputs": ["running sensor"],
+      "standards": [],
+      "mappings": {
+        "tools": [
+          { "name": "systemd unit via install.sh", "path": "build/install.sh", "status": "implemented" },
+          { "name": "DaemonSet manifest", "path": "deployment/kubernetes/daemonset.yaml", "status": "implemented" }
+        ],
+        "features": [],
+        "controls": []
+      },
+      "gaps": [],
+      "next": []
+    }
+  ]
+}

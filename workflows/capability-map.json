@@ -1,0 +1,49 @@
+{
+  "$comment": "Reverse index: each tool, feature or control and the workflow steps that use it. Statuses mirror the workflow files.",
+  "tools": {
+    "kernel/programs/sensor.bpf.c": ["crash-01-detection", "tel-03-collect"],
+    "build/install.sh": ["tel-01-install", "tel-10-deploy"],
+    "build/test_setup.sh": ["tel-01-install", "crash-11-verification"],
+    "userspace/src/application/implant_agent.py": ["tel-02-load", "tel-04-parse"],
+    "userspace/src/core/config.py": ["tel-02-load"],
+    "userspace/src/collection/models.py": ["tel-04-parse"],
+    "userspace/src/detection/ip_analysis/analyzer.py": ["crash-05-provenance", "tel-05-ip-analysis"],
+    "userspace/src/detection/yara/detector.py": ["tel-06-yara"],
+    "userspace/src/detection/yara/rules_manager.py": ["tel-06-yara", "crash-11-verification"],
+    "userspace/src/detection/sigma_lite/detector.py": ["crash-05-provenance", "tel-07-sigma", "crash-11-verification"],
+    "userspace/src/detection/correlation/threat_correlator.py": ["crash-05-provenance", "crash-08-impact", "tel-08-correlation"],
+    "userspace/src/detection/crash_detection/detector.py": [
+      "crash-01-detection", "crash-02-evidence", "crash-03-triage", "crash-06-root-cause", "crash-10-reporting"
+    ],
+    "userspace/src/examples/poc_builder.py": ["crash-07-reproduction"],
+    "examples/vulnerable-test-app": ["crash-07-reproduction"],
+    "userspace/src/integrations/amalia/exporter.py": ["crash-10-reporting", "tel-09-export"],
+    "userspace/src/integrations/braincell/client.py": ["crash-10-reporting", "tel-09-export"],
+    "deployment/kubernetes/daemonset.yaml": ["tel-10-deploy"]
+  },
+  "features": {
+    "Process exec and fork events": ["crash-01-detection", "crash-05-provenance", "tel-03-collect"],
+    "Network connection events": ["crash-05-provenance", "tel-03-collect"],
+    "File open, read, write events": ["tel-03-collect"],
+    "Four-layer detection engine": ["tel-05-ip-analysis", "tel-06-yara", "tel-07-sigma", "tel-08-correlation"],
+    "Crash detection layer": ["crash-03-triage"],
+    "Per-event-type collection toggles": ["tel-02-load"],
+    "Batching and retry with backoff": ["tel-09-export"]
+  },
+  "controls": {
+    "RoE loading and expiry check": ["crash-00-authorization"],
+    "CIDR target validation": ["crash-00-authorization", "crash-07-reproduction"],
+    "Operator identity binding": ["crash-00-authorization"],
+    "Scope tag in generated artefacts": ["crash-07-reproduction"],
+    "Audit log of collection and test actions": ["crash-02-evidence", "crash-07-reproduction", "crash-10-reporting"],
+    "Kernel version and capability check": ["tel-01-install"],
+    "Event loss threshold": ["tel-03-collect"],
+    "min_threat_score_report": ["tel-05-ip-analysis"],
+    "min_confidence and rule fallback": ["tel-06-yara"],
+    "Bearer token auth": ["tel-09-export"]
+  },
+  "unmapped": {
+    "$comment": "Nothing in the repo covers these steps yet.",
+    "steps": ["crash-04-dedup", "crash-09-mitigation"]
+  }
+}
